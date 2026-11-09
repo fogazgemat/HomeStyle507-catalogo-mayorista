@@ -176,7 +176,6 @@
     card.className = "card";
     const image = document.createElement("img");
     image.loading = "lazy";
-    image.addEventListener("click", () => window.abrirModal(image));
     const info = document.createElement("div");
     info.className = "card-info";
     const title = document.createElement("h3");
@@ -829,8 +828,8 @@
   }
 
   document.addEventListener("click", (event) => {
-    const image = event.target.closest && event.target.closest(".card img");
-    if (image && state.editor) {
+    const card = event.target.closest && event.target.closest(".card");
+    if (card && state.editor && window.cardModalActual === card) {
       window.setTimeout(() => renderModalEditor(window.cardModalActual), 0);
     }
   });

@@ -13,7 +13,11 @@ const DEFAULT_CONFIG = {
 };
 
 const PROFILE_CONFIG = {
-  Chris (Chorrera): {
+  "chris (chorrera)": {
+    vendedorFijo: "Chris (Chorrera)",
+    numeroFijo: "6977-8350"
+  },
+  chris: {
     vendedorFijo: "Chris (Chorrera)",
     numeroFijo: "6977-8350"
   },
@@ -67,6 +71,7 @@ let filtroSubcategoriaActual = null;
 // 2. Variables de estado
 let seleccion = JSON.parse(localStorage.getItem("seleccion")) || [];
 let productoActual = null; // <--- ESTA ES LA QUE FALTABA
+let intervaloCarruselesTarjetas = null;
 let tiempoRestante = 7;
 let intervaloTimer = null;
 let mostrarPrecioMayor = false;
@@ -182,6 +187,28 @@ function iniciarModoMayoristaDesdeLogo() {
     if (typeof e.button === "number" && e.button !== 0) return;
     registrarToqueLogoMayor();
   });
+}
+
+function aplicarPreferenciaColumnasGrid() {
+  const grids = document.querySelectorAll(".grid");
+  const toggleText = document.getElementById("gridToggleText");
+  const esMovil = window.matchMedia("(max-width: 600px)").matches;
+
+  if (esMovil) {
+    const unaColumna = localStorage.getItem("gridColumnsMobile") === "1";
+    grids.forEach(grid => {
+      grid.style.gridTemplateColumns = unaColumna ? "1fr" : "";
+    });
+    if (toggleText) toggleText.textContent = unaColumna ? "Ver 2 columnas" : "Ver 1 columna";
+    return;
+  }
+
+  const tresColumnas = localStorage.getItem("gridColumns") === "3";
+  const columnasBase = window.matchMedia("(min-width: 1024px)").matches ? 5 : 2;
+  grids.forEach(grid => {
+    grid.style.gridTemplateColumns = tresColumnas ? "repeat(3, 1fr)" : "";
+  });
+  if (toggleText) toggleText.textContent = tresColumnas ? `Ver ${columnasBase} columnas` : "Ver 3 columnas";
 }
 
 function registrarToqueLogoMayor() {
@@ -309,38 +336,36 @@ function configurarEventListeners() {
       e.preventDefault();
       const grids = document.querySelectorAll(".grid");
       const toggleText = document.getElementById("gridToggleText");
-      
-      // Verificar el estado del primer grid
-      const isThreeColumns = grids[0]?.style.gridTemplateColumns === "repeat(3, 1fr)";
-      
-      if (isThreeColumns) {
-        // Volver a 2 columnas
+
+      if (window.matchMedia("(max-width: 600px)").matches) {
+        const unaColumna = localStorage.getItem("gridColumnsMobile") !== "1";
         grids.forEach(grid => {
-          grid.style.gridTemplateColumns = "";
+          grid.style.gridTemplateColumns = unaColumna ? "1fr" : "";
         });
-        toggleText.textContent = "Ver 3 columnas";
-        localStorage.setItem("gridColumns", "2");
-      } else {
-        // Cambiar a 3 columnas
+        localStorage.setItem("gridColumnsMobile", unaColumna ? "1" : "2");
+        if (toggleText) toggleText.textContent = unaColumna ? "Ver 2 columnas" : "Ver 1 columna";
+        return;
+      }
+
+      const tresColumnas = localStorage.getItem("gridColumns") !== "3";
+      const columnasBase = window.matchMedia("(min-width: 1024px)").matches ? 5 : 2;
+      if (tresColumnas) {
         grids.forEach(grid => {
           grid.style.gridTemplateColumns = "repeat(3, 1fr)";
         });
-        toggleText.textContent = "Ver 2 columnas";
         localStorage.setItem("gridColumns", "3");
+      } else {
+        grids.forEach(grid => {
+          grid.style.gridTemplateColumns = "";
+        });
+        localStorage.setItem("gridColumns", "5");
       }
+      if (toggleText) toggleText.textContent = tresColumnas ? `Ver ${columnasBase} columnas` : "Ver 3 columnas";
     });
   }
   
-  // Restaurar estado del grid
-  const savedGridColumns = localStorage.getItem("gridColumns");
-  if (savedGridColumns === "3") {
-    const grids = document.querySelectorAll(".grid");
-    const toggleText = document.getElementById("gridToggleText");
-    grids.forEach(grid => {
-      grid.style.gridTemplateColumns = "repeat(3, 1fr)";
-    });
-    if (toggleText) toggleText.textContent = "Ver 2 columnas";
-  }
+  aplicarPreferenciaColumnasGrid();
+  window.addEventListener("resize", aplicarPreferenciaColumnasGrid);
   
   // Botón Ver Ubicación
   const openLocationBtn = document.getElementById("openLocationVideo");
@@ -422,11 +447,18 @@ function configurarEventListeners() {
     });
   });
 
-  // Imágenes de productos para abrir modal
-  document.querySelectorAll(".card img").forEach(img => {
-    img.style.cursor = "pointer";
-    img.addEventListener("click", () => abrirModal(img));
-  });
+  const catalog = document.getElementById("catalogo");
+  if (catalog) {
+    catalog.addEventListener("click", (event) => {
+      if (modoDescargaImagenes) return;
+      const card = event.target.closest(".card");
+      if (!card || !catalog.contains(card)) return;
+      if (event.target.closest("button, a, input, select, textarea, label, [contenteditable='true']")) return;
+
+      const image = card.querySelector("img");
+      if (image) abrirModal(image);
+    });
+  }
 
   // Botón flotante con teclado
   const floatBtn = document.querySelector(".float-wa");
@@ -464,40 +496,50 @@ function configurarEventListeners() {
 
 /* ================= CARRUSEL EN CARTAS ================= */
 function iniciarCarruelesCartas() {
-  document.querySelectorAll(".card").forEach((card, index) => {
+  document.querySelectorAll(".card").forEach(card => {
     if (card._carouselInterval) {
       clearInterval(card._carouselInterval);
       card._carouselInterval = null;
     }
     const imgs = (card.dataset.images || '').split(',').map(s => s.trim()).filter(Boolean);
-    
+
+    const firmaImagenes = imgs.join(",");
+    if (card._carouselImagesSignature === firmaImagenes) return;
+    card._carouselImagesSignature = firmaImagenes;
+    card.dataset.images = firmaImagenes;
+
     if (imgs.length > 1) {
-      // Iniciar en índice aleatorio
-      const indicePrincipal = Math.floor(Math.random() * imgs.length);
-      
-      // Guardar datos en el card
-      card.dataset.images = imgs.join(',');
-      card.dataset.imgIndex = indicePrincipal;
-      
-      // Actualizar imagen inicial
-      const img = card.querySelector('img');
-      if (img) {
-        img.src = imgs[indicePrincipal];
-      }
-      
-      // Iniciar rotación cada 5 segundos
-      card._carouselInterval = setInterval(() => {
-        const imgActual = card.querySelector('img');
-        const currentImages = (card.dataset.images || '').split(',').map(path => path.trim()).filter(Boolean);
-        if (imgActual && currentImages.length > 1) {
-          let nuevoIndex = parseInt(card.dataset.imgIndex) || 0;
-          nuevoIndex = (nuevoIndex + 1) % currentImages.length;
-          card.dataset.imgIndex = nuevoIndex;
-          imgActual.src = currentImages[nuevoIndex];
-        }
-      }, 5000);
+      const indiceInicial = Math.floor(Math.random() * imgs.length);
+      card.dataset.imgIndex = String(indiceInicial);
+      const imagen = card.querySelector("img");
+      const rect = card.getBoundingClientRect();
+      const visible = rect.bottom > 0 && rect.top < window.innerHeight;
+      if (imagen && visible) imagen.src = imgs[indiceInicial];
+    } else {
+      delete card.dataset.imgIndex;
     }
   });
+
+  if (intervaloCarruselesTarjetas) return;
+  intervaloCarruselesTarjetas = setInterval(() => {
+    if (document.hidden) return;
+
+    document.querySelectorAll(".card").forEach(card => {
+      if (card.style.display === "none") return;
+      const rect = card.getBoundingClientRect();
+      if (rect.bottom <= 0 || rect.top >= window.innerHeight ||
+          rect.right <= 0 || rect.left >= window.innerWidth) return;
+
+      const imagenes = (card.dataset.images || "").split(",").map(path => path.trim()).filter(Boolean);
+      const imagen = card.querySelector("img");
+      if (!imagen || imagenes.length < 2) return;
+
+      const indiceActual = Number.parseInt(card.dataset.imgIndex, 10) || 0;
+      const nuevoIndice = (indiceActual + 1) % imagenes.length;
+      card.dataset.imgIndex = String(nuevoIndice);
+      imagen.src = imagenes[nuevoIndice];
+    });
+  }, 5000);
 }
 
 /* ================= ABRIR MODAL ================= */
