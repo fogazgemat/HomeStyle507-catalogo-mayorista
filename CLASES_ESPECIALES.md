@@ -168,8 +168,8 @@ Localiza el `<article class="card"...` del producto
 
 Usa estos enlaces desde el `index.html` principal:
 
-- Angel (Chorrera): `index.html?perfil=Angel (Chorrera)`
-- Solangel: `index.html?perfil=Solangel`
+- Antoni: `index.html?perfil=Antoni`
+- Chris (Chorrera): `index.html?perfil=Chris (Chorrera)`
 - Génesis: `index.html?perfil=genesis`
 - Fran (Chorrera): `index.html?perfil=Fran (Chorrera)`
 - Yoli: `index.html?perfil=yoli`

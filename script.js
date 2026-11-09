@@ -1,8 +1,8 @@
 // 1. Lista de vendedores
 const VENDEDORES = [
-    { nombre: "Solangel", numero: "6977-8350" },
+    { nombre: "Chris (Chorrera)", numero: "6977-8350" },
     { nombre: "Yoli", numero: "6168-3538" },
-    { nombre: "Angel (Chorrera)", numero: "6260-6548" },
+    { nombre: "Antoni", numero: "6260-6548" },
     { nombre: "Fran (Chorrera)", numero: "6236-4158" },
     { nombre: "Génesis", numero: "6171-3520" }
 ];
@@ -13,16 +13,16 @@ const DEFAULT_CONFIG = {
 };
 
 const PROFILE_CONFIG = {
-  Solangel: {
-    vendedorFijo: "Solangel",
+  Chris (Chorrera): {
+    vendedorFijo: "Chris (Chorrera)",
     numeroFijo: "6977-8350"
   },
   yoli: {
     vendedorFijo: "Yoli",
     numeroFijo: "6168-3538"
   },
-  angel: {
-    vendedorFijo: "Angel (Chorrera)",
+  antoni: {
+    vendedorFijo: "Antoni",
     numeroFijo: "6260-6548"
   },
   fran: {
