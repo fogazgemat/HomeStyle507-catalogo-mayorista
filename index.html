@@ -88,14 +88,6 @@
     <div class="menu-section">
       <h3 class="menu-section-title">Accesos Rápidos</h3>
       <ul class="menu-list">
-        <li><a href="#" data-category="Promociones" class="menu-link">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
-          Promociones
-        </a></li>
-        <li><a href="#" data-category="Novedades" class="menu-link">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-          Novedades
-        </a></li>
         <li><a href="#" data-category="Todos" class="menu-link active">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
           Ver Todo
@@ -175,6 +167,15 @@
         </button></li>
       </ul>
     </div>
+
+    <div class="menu-section menu-section-editor-link">
+      <ul class="menu-list">
+        <li><a href="editores.html" class="menu-link">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"></path></svg>
+          <span>Panel de editores</span>
+        </a></li>
+      </ul>
+    </div>
   </div>
 </aside>
 
@@ -187,8 +188,6 @@
 
 <nav id="catNav" role="navigation" aria-label="Categorías de productos">
   <button class="active" data-category="Todos" aria-pressed="true">Todos</button>
-  <button class="btn-subcat btn-subcat-promo" data-category="Promociones" aria-pressed="false">Promoción</button>
-  <button class="btn-subcat btn-subcat-new" data-category="Novedades" aria-pressed="false">Novedad</button>
   <button data-category="Forros" aria-pressed="false">Forros</button>
   <button data-category="Comedor" aria-pressed="false">Comedor</button>
   <button data-category="Sábanas" aria-pressed="false">Sábanas</button>
@@ -204,8 +203,6 @@
   <button data-category="Cortinas" aria-pressed="false">Cortinas</button>
   <button data-category="Accesorios" aria-pressed="false">Accesorios</button>
   <button data-category="Otros" aria-pressed="false">Otros</button>
-  <button class="btn-subcat btn-subcat-agotado" data-category="Agotados" aria-pressed="false">Agotados</button>
-  <button class="btn-subcat btn-subcat-prox" data-category="Proximamente" aria-pressed="false">Próximamente</button>
 </nav>
 
 <main id="catalogo" role="main" aria-label="Catálogo de productos">
@@ -1613,7 +1610,9 @@
     <div class="modal-cuerpo">
       <h2 id="modalNombre"></h2>
       <p id="modalDesc"></p>
+      <div id="modalDisponibilidad" class="modal-disponibilidad" style="display:none"></div>
       <div id="modalPrecioMayor" class="modal-precio modal-precio-mayor" style="display:none">Precio neto: $0.00</div>
+      <button id="modalRevendedorAction" class="modal-btn modal-btn-revendedor" type="button" hidden>Copiar + guardar imágenes</button>
       <button class="modal-btn" id="modalBtn" onclick="agregarDelModal()">Agregar a consulta</button>
     </div>
   </div>
@@ -1627,6 +1626,9 @@
       <h3 id="modalCollageTitle">Imágenes del producto</h3>
     </div>
     <div id="modalCollageGrid" class="modal-collage-grid"></div>
+    <div class="modal-collage-actions">
+      <button id="modalDescargarSeleccionadas" class="modal-collage-download" type="button" hidden>Descargar seleccionadas</button>
+    </div>
   </div>
 </div>
 

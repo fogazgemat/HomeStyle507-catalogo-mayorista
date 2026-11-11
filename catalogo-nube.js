@@ -3,6 +3,8 @@
   const TABLE = "catalog_products";
   const BUCKET = "product-images";
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+  const PRODUCT_DEFAULTS_CUTOFF = Date.parse("2026-11-11T06:00:00Z");
+  const STATIC_CATALOG_SEED_VERSION = "2026-11-static-catalog";
   const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
   const config = window.CATALOGO_SUPABASE_CONFIG || {};
   const categoryNames = Array.from(document.querySelectorAll("#catNav [data-category]"))
@@ -11,6 +13,8 @@
   const state = {
     client: null,
     rows: [],
+    staticRows: [],
+    staticCatalogSeeded: false,
     editor: false,
     authOverlay: null,
     editorBar: null,
@@ -93,32 +97,52 @@
     return state.rows.find((row) => row.id === card.dataset.cloudId);
   }
 
+  function hasLegacyProductDefaults(row) {
+    const updatedAt = Date.parse(row?.updated_at || "");
+    return !Number.isFinite(updatedAt) || updatedAt < PRODUCT_DEFAULTS_CUTOFF;
+  }
+
   function applyRowToCard(row, card) {
+    const legacyDefaults = hasLegacyProductDefaults(row);
+    const priorityLevel = legacyDefaults ? "Prioridad 3" : normalizarPrioridad(row.priority_level || row.priority || "Prioridad 3");
+    const allAvailable = legacyDefaults ? false : Boolean(row.all_available || row.todas_disponibles || false);
+    const isInReview = legacyDefaults || Boolean(row.is_secure);
+    const storedImages = (card.dataset.images || "").split(",").map((image) => image.trim()).filter(Boolean);
+    const imagePaths = Array.isArray(row.image_urls) && row.image_urls.length
+      ? row.image_urls
+      : storedImages.length
+        ? storedImages
+        : [card.querySelector("img")?.getAttribute("src")].filter(Boolean);
+
     card.dataset.cloudId = row.id;
+    card.dataset.categoriaOriginal = row.category;
     card.dataset.nombre = row.name;
     card.dataset.descripcion = row.description || "";
     card.dataset.precioMayor = row.net_price || "$0.00";
-    card.dataset.images = (row.image_urls || []).join(",");
+    card.dataset.images = imagePaths.join(",");
+    card.dataset.prioridad = priorityLevel;
+    card.dataset.todasDisponibles = String(allAvailable);
     card.classList.remove("agotado", "proximo", "proxima", "novedad", "promocion", "seguro-seguro");
     card.classList.add("card");
     if (row.status === "Agotado") card.classList.add("agotado");
     if (row.status === "Próximamente") card.classList.add("proximo");
     if (row.is_new) card.classList.add("novedad");
     if (row.is_promotion) card.classList.add("promocion");
-    if (row.is_secure) card.classList.add("seguro-seguro");
+    if (isInReview) card.classList.add("seguro-seguro");
 
     let badge = card.querySelector(".badge-seguro-seguro");
-    if (row.is_secure && !badge) {
+    if (isInReview && !badge) {
       badge = document.createElement("span");
       badge.className = "badge-seguro-seguro";
-      badge.setAttribute("aria-label", "seguro/seguro");
-      badge.textContent = "seguro/seguro";
+      badge.setAttribute("aria-label", "En proceso de revisión y finalización");
+      badge.textContent = "En proceso de revisión y finalización";
       card.prepend(badge);
-    } else if (!row.is_secure && badge) {
+    } else if (!isInReview && badge) {
       badge.remove();
     }
 
-    const imagePaths = row.image_urls || [];
+    card.querySelectorAll(".badge-todas-disponibles, .card-disponibilidad").forEach((item) => item.remove());
+
     const image = card.querySelector("img");
     if (image && imagePaths.length) {
       image.src = imagePaths[0];
@@ -147,28 +171,6 @@
       titleRow.appendChild(titleButton);
     }
     titleButton.onclick = () => beginInlineEdit(card, "display_title", title);
-
-    let priceRow = info.querySelector(".editor-card-price");
-    if (!priceRow) {
-      priceRow = document.createElement("div");
-      priceRow.className = "editor-card-price";
-      const price = document.createElement("span");
-      price.className = "editor-card-price-value";
-      priceRow.appendChild(price);
-      priceRow.appendChild(createEditIcon(
-        () => beginInlineEdit(card, "net_price", price),
-        "Editar precio neto"
-      ));
-      info.appendChild(priceRow);
-    }
-    priceRow.querySelector(".editor-card-price-value").textContent = row.net_price || "$0.00";
-    const priceButton = priceRow.querySelector(".editor-pencil");
-    priceButton.dataset.editorControl = "true";
-    priceButton.onclick = () => beginInlineEdit(
-      card,
-      "net_price",
-      priceRow.querySelector(".editor-card-price-value")
-    );
   }
 
   function createProductCard(row) {
@@ -189,28 +191,52 @@
     return card;
   }
 
+  function comparableImageReference(url) {
+    return String(url || "").replace(/^img_([a-z0-9_-]+)_(\d+)_(\d+)(\.[a-z0-9]+)$/i, "img/$1/$2/$3$4").toLowerCase();
+  }
+
   function renderCatalog(rows) {
     state.rows = rows;
-    if (!rows.length) return;
+    const baseRows = state.editor || state.staticCatalogSeeded ? [] : state.staticRows || [];
+    const mergedRows = new Map(baseRows.map((row) => [`${row.category}\u0000${row.name}`, row]));
+    rows.forEach((row) => {
+      const key = `${row.category}\u0000${row.name}`;
+      const staticRow = mergedRows.get(key);
+      const staticImages = staticRow?.image_urls || [];
+      const staticImageReferences = new Set(staticImages.map(comparableImageReference));
+      const cloudImages = (row.image_urls || [])
+        .filter((image) => !staticImageReferences.has(comparableImageReference(image)));
+      mergedRows.set(key, {
+        ...staticRow,
+        ...row,
+        image_urls: [...new Set([...staticImages, ...cloudImages])],
+        priority_level: hasLegacyProductDefaults(row) ? "Prioridad 3" : row.priority_level || staticRow?.priority_level || "Prioridad 3",
+        all_available: hasLegacyProductDefaults(row) ? false : typeof row.all_available === "boolean" ? row.all_available : staticRow?.all_available || false,
+        is_secure: hasLegacyProductDefaults(row) ? true : typeof row.is_secure === "boolean" ? row.is_secure : staticRow?.is_secure ?? true
+      });
+    });
+    const catalogRows = [...mergedRows.values()];
+    if (!catalogRows.length) return;
 
     const sections = new Map(Array.from(document.querySelectorAll("#catalogo .categoria"))
       .map((section) => [section.dataset.categoria, section]));
     const existing = new Map();
     document.querySelectorAll("#catalogo .card").forEach((card) => {
       const section = card.closest(".categoria");
-      existing.set(`${section.dataset.categoria}\u0000${card.dataset.nombre}`, card);
+      const originalCategory = card.dataset.categoriaOriginal || section.dataset.categoria;
+      existing.set(`${originalCategory}\u0000${card.dataset.nombre}`, card);
     });
     const retained = new Set();
     const categoryOrder = new Map(categoryNames.map((name, index) => [name, index]));
 
-    rows.sort((a, b) =>
+    catalogRows.sort((a, b) =>
       (categoryOrder.get(a.category) ?? Number.MAX_SAFE_INTEGER) -
         (categoryOrder.get(b.category) ?? Number.MAX_SAFE_INTEGER) ||
       a.sort_order - b.sort_order ||
       a.display_title.localeCompare(b.display_title, "es")
     );
 
-    rows.forEach((row) => {
+    catalogRows.forEach((row) => {
       const section = sections.get(row.category);
       if (!section) {
         console.error(`Categoría desconocida en Supabase: ${row.category}`);
@@ -231,6 +257,9 @@
       }
     });
 
+    if (typeof window.aplicarOrdenPrioridadEnTarjetas === "function") {
+      window.aplicarOrdenPrioridadEnTarjetas();
+    }
     if (typeof window.iniciarCarruelesCartas === "function") {
       window.iniciarCarruelesCartas();
     }
@@ -242,7 +271,7 @@
 
   function staticProductsFromPage() {
     const products = [];
-    document.querySelectorAll("#catalogo .categoria").forEach((section) => {
+    document.querySelectorAll("#catalogo .categoria:not(#priorityOneSection)").forEach((section) => {
       let order = 0;
       section.querySelectorAll(".card").forEach((card) => {
         const imagePaths = (card.dataset.images || "").split(",").map((image) => image.trim()).filter(Boolean);
@@ -264,9 +293,11 @@
           description: card.dataset.descripcion || "",
           net_price: card.dataset.precioMayor || "$0.00",
           status,
+          priority_level: normalizarPrioridad(card.dataset.prioridad || "Prioridad 3"),
+          all_available: /^(true|1|si|yes)$/i.test(card.dataset.todasDisponibles || "false"),
           is_new: classes.contains("novedad") || classes.contains("new"),
           is_promotion: classes.contains("promocion") || classes.contains("promo"),
-          is_secure: classes.contains("seguro-seguro"),
+          is_secure: true,
           image_urls: imagePaths,
           sort_order: order++
         });
@@ -281,13 +312,48 @@
     return data || [];
   }
 
+  async function ensureStaticCatalogSeeded(rows) {
+    const { data: marker, error: markerError } = await state.client
+      .from("catalog_migrations")
+      .select("version")
+      .eq("version", STATIC_CATALOG_SEED_VERSION)
+      .maybeSingle();
+    if (markerError) throw markerError;
+    if (marker) {
+      state.staticCatalogSeeded = true;
+      return rows;
+    }
+
+    const existing = new Set(rows.map((row) => `${row.category}\u0000${row.name}`));
+    const missing = state.staticRows.filter((row) => !existing.has(`${row.category}\u0000${row.name}`));
+    if (missing.length) {
+      const { error } = await state.client.from(TABLE).upsert(missing, { onConflict: "category,name" });
+      if (error) throw error;
+    }
+
+    const { error: seedError } = await state.client.from("catalog_migrations").insert({ version: STATIC_CATALOG_SEED_VERSION });
+    if (seedError && seedError.code !== "23505") throw seedError;
+    state.staticCatalogSeeded = true;
+    return missing.length ? fetchProducts() : rows;
+  }
+
   async function loadCloudCatalog() {
-    const rows = await fetchProducts();
+    let rows = await fetchProducts();
+    if (state.editor) {
+      rows = await ensureStaticCatalogSeeded(rows);
+    } else {
+      const { data: marker, error } = await state.client
+        .from("catalog_migrations")
+        .select("version")
+        .eq("version", STATIC_CATALOG_SEED_VERSION)
+        .maybeSingle();
+      state.staticCatalogSeeded = !error && Boolean(marker);
+    }
     if (rows.length) {
       renderCatalog(rows);
       return;
     }
-    if (state.editor) {
+    if (state.editor && !state.staticCatalogSeeded) {
       await importInitialCatalog();
       return;
     }
@@ -295,7 +361,7 @@
   }
 
   async function importInitialCatalog() {
-    const products = staticProductsFromPage();
+    const products = state.staticRows.length ? state.staticRows : staticProductsFromPage();
     if (!products.length) throw new Error("No se encontraron productos para iniciar el catálogo compartido.");
     const { error } = await state.client.from(TABLE).upsert(products, { onConflict: "category,name" });
     if (error) throw error;
@@ -459,7 +525,13 @@
   function updateProduct(card, changes) {
     const row = rowForCard(card);
     if (!row) throw new Error("No se encontró el producto en el catálogo compartido.");
-    const payload = { ...changes, updated_at: new Date().toISOString() };
+    const normalizedChanges = { ...changes };
+    if (hasLegacyProductDefaults(row)) {
+      if (!Object.prototype.hasOwnProperty.call(normalizedChanges, "priority_level")) normalizedChanges.priority_level = "Prioridad 3";
+      if (!Object.prototype.hasOwnProperty.call(normalizedChanges, "all_available")) normalizedChanges.all_available = false;
+      if (!Object.prototype.hasOwnProperty.call(normalizedChanges, "is_secure")) normalizedChanges.is_secure = true;
+    }
+    const payload = { ...normalizedChanges, updated_at: new Date().toISOString() };
     const updated = { ...row, ...payload };
     return state.client.from(TABLE).update(payload).eq("id", row.id).select().single()
       .then(({ data, error }) => {
@@ -569,11 +641,13 @@
       <div class="editor-product-grid">
         <label>Categoría<select class="editor-category-select"></select></label>
         <label>Disponibilidad<select class="editor-status-select"></select></label>
+        <label>Prioridad<select class="editor-priority-select"><option>Prioridad 1</option><option>Prioridad 2</option><option>Prioridad 3</option></select></label>
       </div>
       <div class="editor-product-flags">
         <label><input type="checkbox" class="editor-new-flag"> Novedad</label>
         <label><input type="checkbox" class="editor-promo-flag"> Promoción</label>
-        <label><input type="checkbox" class="editor-secure-flag"> Seguro/Seguro</label>
+        <label><input type="checkbox" class="editor-secure-flag"> En proceso de revisión y finalización</label>
+        <label><input type="checkbox" class="editor-all-available-flag"> Todas disponibles</label>
       </div>
       <div class="editor-image-manager">
         <h4>Fotos del producto</h4>
@@ -610,6 +684,8 @@
         await updateProduct(card, {
           category: categorySelect.value,
           status: statusSelect.value,
+          priority_level: panel.querySelector(".editor-priority-select").value,
+          all_available: panel.querySelector(".editor-all-available-flag").checked,
           is_new: panel.querySelector(".editor-new-flag").checked,
           is_promotion: panel.querySelector(".editor-promo-flag").checked,
           is_secure: panel.querySelector(".editor-secure-flag").checked
@@ -638,9 +714,12 @@
     const panel = document.querySelector(".editor-product-panel");
     panel.querySelector(".editor-category-select").value = row.category;
     panel.querySelector(".editor-status-select").value = row.status;
+    const legacyDefaults = hasLegacyProductDefaults(row);
+    panel.querySelector(".editor-priority-select").value = legacyDefaults ? "Prioridad 3" : normalizarPrioridad(row.priority_level || row.priority || "Prioridad 3");
     panel.querySelector(".editor-new-flag").checked = row.is_new;
     panel.querySelector(".editor-promo-flag").checked = row.is_promotion;
-    panel.querySelector(".editor-secure-flag").checked = row.is_secure;
+    panel.querySelector(".editor-secure-flag").checked = legacyDefaults || Boolean(row.is_secure);
+    panel.querySelector(".editor-all-available-flag").checked = legacyDefaults ? false : Boolean(row.all_available || false);
     const list = panel.querySelector(".editor-image-list");
     list.replaceChildren();
     (row.image_urls || []).forEach((url) => {
@@ -667,19 +746,56 @@
     return index >= 0 ? decodeURIComponent(url.slice(index + marker.length)) : null;
   }
 
+  function processImageForUpload(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = document.createElement("img");
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const maxSize = 1800;
+          const ratio = Math.min(1, maxSize / Math.max(img.width, img.height));
+          canvas.width = Math.max(1, Math.round(img.width * ratio));
+          canvas.height = Math.max(1, Math.round(img.height * ratio));
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const mimeType = file.type === "image/png" ? "image/jpeg" : file.type;
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error(`No se pudo procesar la imagen ${file.name}.`));
+              return;
+            }
+            const processed = new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), {
+              type: mimeType,
+              lastModified: Date.now()
+            });
+            resolve(processed);
+          }, mimeType, 0.82);
+        };
+        img.onerror = () => reject(new Error(`La imagen ${file.name} no se pudo leer.`));
+        img.src = reader.result;
+      };
+      reader.onerror = () => reject(new Error(`No se pudo abrir ${file.name}.`));
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function uploadImages(files) {
     const paths = [];
     for (const file of files) {
       if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
         throw new Error(`Formato de imagen no compatible: ${file.name}`);
       }
-      if (file.size > MAX_IMAGE_BYTES) {
+      const processedFile = await processImageForUpload(file);
+      if (processedFile.size > MAX_IMAGE_BYTES) {
         throw new Error(`${file.name} supera el límite de 10 MB.`);
       }
-      const extension = file.name.split(".").pop().toLowerCase();
+      const extension = processedFile.name.split(".").pop().toLowerCase();
       const path = `products/${crypto.randomUUID()}.${extension}`;
-      const { error } = await state.client.storage.from(BUCKET).upload(path, file, {
-        contentType: file.type,
+      const { error } = await state.client.storage.from(BUCKET).upload(path, processedFile, {
+        contentType: processedFile.type,
         upsert: false
       });
       if (error) throw error;
@@ -763,11 +879,13 @@
         <div class="editor-product-grid">
           <label>Precio neto<input name="net_price" value="$0.00" required></label>
           <label>Disponibilidad<select name="status"><option>Disponible</option><option>Agotado</option><option>Próximamente</option></select></label>
+          <label>Prioridad<select name="priority_level"><option>Prioridad 3</option><option>Prioridad 2</option><option>Prioridad 1</option></select></label>
         </div>
         <div class="editor-product-flags">
           <label><input type="checkbox" name="is_new"> Novedad</label>
           <label><input type="checkbox" name="is_promotion"> Promoción</label>
-          <label><input type="checkbox" name="is_secure"> Seguro/Seguro</label>
+          <label><input type="checkbox" name="is_secure" checked> En proceso de revisión y finalización</label>
+          <label><input type="checkbox" name="all_available"> Todas disponibles</label>
         </div>
         <label class="editor-file-label">Fotos del producto<input name="images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required></label>
         <p class="editor-auth-message editor-form-message" aria-live="polite"></p>
@@ -804,6 +922,8 @@
           description: data.description.trim(),
           net_price: data.net_price.trim(),
           status: data.status,
+          priority_level: data.priority_level || "Prioridad 3",
+          all_available: Boolean(form.elements.all_available.checked),
           is_new: form.elements.is_new.checked,
           is_promotion: form.elements.is_promotion.checked,
           is_secure: form.elements.is_secure.checked,
@@ -836,6 +956,7 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     state.client = makeClient();
+    state.staticRows = staticProductsFromPage();
     if (EDIT_MODE) {
       document.body.classList.add("modo-edicion");
       let robots = document.querySelector('meta[name="robots"]');

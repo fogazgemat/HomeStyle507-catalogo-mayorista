@@ -66,7 +66,6 @@ const APP_CONFIG = {
 };
 
 let categoriaBaseActual = "Todos";
-let filtroSubcategoriaActual = null;
 
 // 2. Variables de estado
 let seleccion = JSON.parse(localStorage.getItem("seleccion")) || [];
@@ -79,6 +78,7 @@ let toquesLogoMayor = [];
 let modoDescargaImagenes = false;
 let imagenesDescarga = [];
 const seleccionImagenesDescarga = new Set();
+const seleccionImagenesModal = new Set();
 const PLACEHOLDER_BUSCADOR_NORMAL = "Buscar productos...";
 const PLACEHOLDER_BUSCADOR_DESCARGA = "Buscar imágenes...";
 const CLICKS_ACTIVACION_MAYOR = 7;
@@ -86,6 +86,139 @@ const VENTANA_ACTIVACION_MAYOR_MS = 5000;
 const STORAGE_THEME_KEY = "catalogoTema";
 const THEME_LIGHT = "claro";
 const THEME_DARK = "nocturno";
+const PRIORIDAD_RANK = {
+  "Prioridad 1": 1,
+  "Prioridad 2": 2,
+  "Prioridad 3": 3
+};
+const GRID_COLUMN_CYCLE = [2, 1, 3];
+const LABEL_REVIEW = "En proceso de revisión y finalización";
+const LABEL_ALL_AVAILABLE = "Todas disponibles";
+const LABEL_CONSULTAR = "Consultar disponibilidad";
+const IMPUESTO_MAYORISTA = 0.07;
+
+function normalizarPrioridad(valor) {
+  const prioridad = (valor || "Prioridad 3").toString().trim();
+  if (PRIORIDAD_RANK[prioridad]) return prioridad;
+  if (prioridad.toLowerCase().includes("prioridad 1")) return "Prioridad 1";
+  if (prioridad.toLowerCase().includes("prioridad 2")) return "Prioridad 2";
+  return "Prioridad 3";
+}
+
+function obtenerPrioridadProducto(producto) {
+  if (!producto) return "Prioridad 3";
+  if (producto.dataset && producto.dataset.prioridad) return normalizarPrioridad(producto.dataset.prioridad);
+  if (producto.priority_level) return normalizarPrioridad(producto.priority_level);
+  if (producto.priority) return normalizarPrioridad(producto.priority);
+  return "Prioridad 3";
+}
+
+function mezclarAleatoriamente(items) {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function ordenarProductosPorPrioridad(productos) {
+  const grupos = new Map();
+  productos.forEach((producto) => {
+    const nivel = obtenerPrioridadProducto(producto);
+    if (!grupos.has(nivel)) grupos.set(nivel, []);
+    grupos.get(nivel).push(producto);
+  });
+
+  const orden = [];
+  Object.keys(PRIORIDAD_RANK)
+    .sort((a, b) => PRIORIDAD_RANK[a] - PRIORIDAD_RANK[b])
+    .forEach((nivel) => {
+      const grupo = grupos.get(nivel) || [];
+      mezclarAleatoriamente(grupo).forEach((producto) => orden.push(producto));
+    });
+
+  return orden;
+}
+
+function obtenerDisponibilidadProducto(producto) {
+  if (!producto) return LABEL_CONSULTAR;
+  const rawValue = producto.dataset?.todasDisponibles ?? producto.all_available ?? producto.todasDisponibles ?? false;
+  const valor = String(rawValue).toLowerCase();
+  return valor === "true" || valor === "1" || valor === "si" || valor === "yes" ? LABEL_ALL_AVAILABLE : LABEL_CONSULTAR;
+}
+
+function aplicarEtiquetasGlobales() {
+  document.querySelectorAll(".card").forEach((card) => {
+    const badge = card.querySelector(".badge-seguro-seguro") || document.createElement("span");
+    badge.className = "badge-seguro-seguro";
+    badge.textContent = LABEL_REVIEW;
+    badge.setAttribute("aria-label", LABEL_REVIEW);
+    if (!badge.parentElement) card.prepend(badge);
+
+    const priorityValue = normalizarPrioridad(card.dataset.prioridad || "Prioridad 3");
+    card.dataset.prioridad = priorityValue;
+    const allAvailable = /^(true|1|si|yes)$/i.test(card.dataset.todasDisponibles || "false");
+    card.dataset.todasDisponibles = String(allAvailable);
+    card.querySelectorAll(".badge-todas-disponibles, .card-disponibilidad").forEach((item) => item.remove());
+  });
+}
+
+function obtenerSeccionPrioridadUno() {
+  const catalog = document.getElementById("catalogo");
+  if (!catalog) return null;
+
+  let section = document.getElementById("priorityOneSection");
+  if (!section) {
+    section = document.createElement("section");
+    section.id = "priorityOneSection";
+    section.className = "categoria";
+    section.dataset.categoria = "Destacados";
+    const title = document.createElement("h2");
+    title.className = "category-title";
+    title.textContent = "Prioridad 1";
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    grid.style.gridTemplateColumns = `repeat(${obtenerEstadoColumnasActual()}, minmax(0, 1fr))`;
+    section.append(title, grid);
+    catalog.prepend(section);
+  }
+  return section;
+}
+
+function aplicarOrdenPrioridadEnTarjetas() {
+  const featuredSection = obtenerSeccionPrioridadUno();
+  if (!featuredSection) return;
+  const featuredGrid = featuredSection.querySelector(".grid");
+  const cards = [...document.querySelectorAll("#catalogo .categoria:not(#priorityOneSection) .card, #priorityOneSection .card")];
+
+  cards.forEach((card) => {
+    if (!card.dataset.categoriaOriginal) {
+      card.dataset.categoriaOriginal = card.closest(".categoria")?.dataset.categoria || "";
+    }
+  });
+
+  const mostrarDestacadosGlobales = categoriaBaseActual === "Todos";
+  cards.forEach((card) => {
+    const section = [...document.querySelectorAll("#catalogo .categoria:not(#priorityOneSection)")]
+      .find((item) => item.dataset.categoria === card.dataset.categoriaOriginal);
+    const grid = section?.querySelector(".grid");
+    if (mostrarDestacadosGlobales && obtenerPrioridadProducto(card) === "Prioridad 1") {
+      featuredGrid.appendChild(card);
+    } else if (grid) {
+      grid.appendChild(card);
+    }
+  });
+
+  const destacados = [...featuredGrid.querySelectorAll(".card")];
+  ordenarProductosPorPrioridad(destacados).forEach((card) => featuredGrid.appendChild(card));
+  featuredSection.style.display = mostrarDestacadosGlobales && destacados.length ? "" : "none";
+
+  document.querySelectorAll("#catalogo .categoria:not(#priorityOneSection) .grid").forEach((grid) => {
+    const categoryCards = [...grid.querySelectorAll(".card")];
+    ordenarProductosPorPrioridad(categoryCards).forEach((card) => grid.appendChild(card));
+  });
+}
 
 /* ================= FUNCIÓN GLOBAL: CERRAR MENÚ ================= */
 function cerrarMenu() {
@@ -146,9 +279,21 @@ document.addEventListener("DOMContentLoaded", () => {
   actualizarBotonWA();
   cerrarModal(); 
   
+  const revendedorAction = document.getElementById("modalRevendedorAction");
+  if (revendedorAction) {
+    revendedorAction.addEventListener("click", () => {
+      const card = window.cardModalActual;
+      if (!card) return;
+      ejecutarAccionRevendedor(card);
+    });
+  }
+  
   // Configurar event listeners para reemplazar inline handlers
   configurarEventListeners();
   
+  aplicarEtiquetasGlobales();
+  aplicarOrdenPrioridadEnTarjetas();
+
   // Iniciar carruseles en las cartas de productos
   iniciarCarruelesCartas();
   
@@ -189,26 +334,32 @@ function iniciarModoMayoristaDesdeLogo() {
   });
 }
 
+function obtenerEstadoColumnasActual() {
+  const valorGuardado = localStorage.getItem("gridColumnsMode");
+  if (valorGuardado && GRID_COLUMN_CYCLE.includes(Number(valorGuardado))) {
+    return Number(valorGuardado);
+  }
+  return 2;
+}
+
+function avanzarCicloColumnas() {
+  const actual = obtenerEstadoColumnasActual();
+  const indexActual = GRID_COLUMN_CYCLE.indexOf(actual);
+  const siguiente = GRID_COLUMN_CYCLE[(indexActual + 1) % GRID_COLUMN_CYCLE.length];
+  localStorage.setItem("gridColumnsMode", String(siguiente));
+  return siguiente;
+}
+
 function aplicarPreferenciaColumnasGrid() {
   const grids = document.querySelectorAll(".grid");
   const toggleText = document.getElementById("gridToggleText");
-  const esMovil = window.matchMedia("(max-width: 600px)").matches;
+  const columnasActuales = obtenerEstadoColumnasActual();
+  const siguiente = GRID_COLUMN_CYCLE[(GRID_COLUMN_CYCLE.indexOf(columnasActuales) + 1) % GRID_COLUMN_CYCLE.length];
 
-  if (esMovil) {
-    const unaColumna = localStorage.getItem("gridColumnsMobile") === "1";
-    grids.forEach(grid => {
-      grid.style.gridTemplateColumns = unaColumna ? "1fr" : "";
-    });
-    if (toggleText) toggleText.textContent = unaColumna ? "Ver 2 columnas" : "Ver 1 columna";
-    return;
-  }
-
-  const tresColumnas = localStorage.getItem("gridColumns") === "3";
-  const columnasBase = window.matchMedia("(min-width: 1024px)").matches ? 5 : 2;
   grids.forEach(grid => {
-    grid.style.gridTemplateColumns = tresColumnas ? "repeat(3, 1fr)" : "";
+    grid.style.gridTemplateColumns = `repeat(${columnasActuales}, minmax(0, 1fr))`;
   });
-  if (toggleText) toggleText.textContent = tresColumnas ? `Ver ${columnasBase} columnas` : "Ver 3 columnas";
+  if (toggleText) toggleText.textContent = `Ver ${siguiente} ${siguiente === 1 ? "columna" : "columnas"}`;
 }
 
 function registrarToqueLogoMayor() {
@@ -236,17 +387,43 @@ function alternarModoMayorista() {
   }
 }
 
+function formatearPrecio(valor) {
+  const numero = Number.parseFloat(String(valor).replace(/[^\d.]/g, "")) || 0;
+  return `$${numero.toFixed(2)}`;
+}
+
+function formatearPrecioConImpuesto(valor) {
+  const numero = Number.parseFloat(String(valor).replace(/[^\d.]/g, "")) || 0;
+  return `$${(numero * (1 + IMPUESTO_MAYORISTA)).toFixed(2)}`;
+}
+
+function actualizarDisponibilidadModal(card) {
+  const disponibilidadElem = document.getElementById("modalDisponibilidad");
+  if (!disponibilidadElem || !card) return;
+  const textoDisponibilidad = obtenerDisponibilidadProducto(card);
+  const esTodasDisponibles = textoDisponibilidad === LABEL_ALL_AVAILABLE;
+
+  disponibilidadElem.textContent = textoDisponibilidad;
+  disponibilidadElem.classList.toggle("is-all-available", esTodasDisponibles);
+  disponibilidadElem.style.display = "block";
+}
+
 function actualizarPreciosModal(card) {
   const precioMayorElem = document.getElementById("modalPrecioMayor");
+  const accionRevendedor = document.getElementById("modalRevendedorAction");
   if (!precioMayorElem || !card) return;
+  const modoInterno = mostrarPrecioMayor || document.body.classList.contains("modo-edicion");
 
-  if (mostrarPrecioMayor) {
+  if (modoInterno) {
+    const precioBase = card.dataset.precioMayor || "$0.00";
     precioMayorElem.style.display = "block";
-    precioMayorElem.textContent = `Precio neto: ${card.dataset.precioMayor || "$0.00"}`;
+    precioMayorElem.textContent = `Precio neto: ${formatearPrecio(precioBase)}`;
+    if (accionRevendedor) accionRevendedor.hidden = false;
     return;
   }
 
   precioMayorElem.style.display = "none";
+  if (accionRevendedor) accionRevendedor.hidden = true;
 }
 
 /* ================= ALTERNANCIA DE ESLOGAN ================= */
@@ -312,6 +489,62 @@ function inicializarProductosPromocionales() {
 }
 
 /* ================= CONFIGURAR EVENT LISTENERS ================= */
+function inicializarCarruselCategorias(nav) {
+  if (!nav || nav.dataset.carruselInicializado === "true") return;
+  const originalButtons = [...nav.querySelectorAll("button[data-category]")];
+  if (originalButtons.length < 2) return;
+
+  nav.dataset.carruselInicializado = "true";
+  const originalCount = originalButtons.length;
+  const addCloneSet = () => {
+    originalButtons.forEach((button) => {
+      const clone = button.cloneNode(true);
+      clone.dataset.circularClone = "true";
+      clone.setAttribute("aria-label", `${button.textContent.trim()}, siguiente vuelta`);
+      nav.appendChild(clone);
+    });
+  };
+
+  addCloneSet();
+  const getCycleWidth = () => nav.querySelectorAll("button[data-category]")[originalCount].offsetLeft - originalButtons[0].offsetLeft;
+  let cycleWidth = getCycleWidth();
+  if (!cycleWidth) return;
+  let cloneSets = 1;
+  while (nav.scrollWidth < cycleWidth + nav.clientWidth && cloneSets < 8) {
+    addCloneSet();
+    cloneSets += 1;
+  }
+  window.addEventListener("resize", () => {
+    cycleWidth = getCycleWidth();
+    while (nav.scrollWidth < cycleWidth + nav.clientWidth && cloneSets < 8) {
+      addCloneSet();
+      cloneSets += 1;
+    }
+  });
+
+  let previousScrollLeft = nav.scrollLeft;
+  let isResetting = false;
+  nav.addEventListener("scroll", () => {
+    if (isResetting) return;
+    const currentScrollLeft = nav.scrollLeft;
+    let nextScrollLeft = null;
+    if (currentScrollLeft >= cycleWidth) {
+      nextScrollLeft = currentScrollLeft - cycleWidth;
+    } else if (currentScrollLeft <= 0 && previousScrollLeft > 0) {
+      nextScrollLeft = currentScrollLeft + cycleWidth;
+    }
+
+    if (nextScrollLeft !== null) {
+      isResetting = true;
+      nav.scrollLeft = nextScrollLeft;
+      previousScrollLeft = nav.scrollLeft;
+      requestAnimationFrame(() => { isResetting = false; });
+      return;
+    }
+    previousScrollLeft = currentScrollLeft;
+  }, { passive: true });
+}
+
 function configurarEventListeners() {
   // Buscador
   const searchInput = document.getElementById("search");
@@ -320,47 +553,22 @@ function configurarEventListeners() {
   }
 
   // Botones de categoría
-  document.querySelectorAll("#catNav button").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      const category = e.target.dataset.category;
-      if (category) {
-        filtrarCategoria(category, e.target);
-      }
+  const categoryNav = document.getElementById("catNav");
+  if (categoryNav) {
+    inicializarCarruselCategorias(categoryNav);
+    categoryNav.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-category]");
+      if (button && categoryNav.contains(button)) filtrarCategoria(button.dataset.category, button);
     });
-  });
+  }
   
   // Toggle de columnas del grid
   const toggleGridBtn = document.getElementById("toggleGridColumns");
   if (toggleGridBtn) {
     toggleGridBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      const grids = document.querySelectorAll(".grid");
-      const toggleText = document.getElementById("gridToggleText");
-
-      if (window.matchMedia("(max-width: 600px)").matches) {
-        const unaColumna = localStorage.getItem("gridColumnsMobile") !== "1";
-        grids.forEach(grid => {
-          grid.style.gridTemplateColumns = unaColumna ? "1fr" : "";
-        });
-        localStorage.setItem("gridColumnsMobile", unaColumna ? "1" : "2");
-        if (toggleText) toggleText.textContent = unaColumna ? "Ver 2 columnas" : "Ver 1 columna";
-        return;
-      }
-
-      const tresColumnas = localStorage.getItem("gridColumns") !== "3";
-      const columnasBase = window.matchMedia("(min-width: 1024px)").matches ? 5 : 2;
-      if (tresColumnas) {
-        grids.forEach(grid => {
-          grid.style.gridTemplateColumns = "repeat(3, 1fr)";
-        });
-        localStorage.setItem("gridColumns", "3");
-      } else {
-        grids.forEach(grid => {
-          grid.style.gridTemplateColumns = "";
-        });
-        localStorage.setItem("gridColumns", "5");
-      }
-      if (toggleText) toggleText.textContent = tresColumnas ? `Ver ${columnasBase} columnas` : "Ver 3 columnas";
+      const siguiente = avanzarCicloColumnas();
+      aplicarPreferenciaColumnasGrid();
     });
   }
   
@@ -492,6 +700,11 @@ function configurarEventListeners() {
       }
     });
   }
+
+  const descargarSeleccionModal = document.getElementById("modalDescargarSeleccionadas");
+  if (descargarSeleccionModal) {
+    descargarSeleccionModal.addEventListener("click", descargarSeleccionRevendedor);
+  }
 }
 
 /* ================= CARRUSEL EN CARTAS ================= */
@@ -560,6 +773,7 @@ function abrirModal(img){
     // Usar textContent en lugar de innerHTML para seguridad
     document.getElementById("modalNombre").textContent = nombre;
     document.getElementById("modalDesc").textContent = descripcion;
+    actualizarDisponibilidadModal(card);
     actualizarEtiquetaFraganciaModal(nombre);
     
     actualizarPreciosModal(card);
@@ -668,14 +882,134 @@ function actualizarEtiquetaFraganciaModal(nombreProducto) {
   }
 }
 
+async function ejecutarAccionRevendedor(card) {
+  if (!card || (!mostrarPrecioMayor && !document.body.classList.contains("modo-edicion"))) return;
+
+  const nombre = card.dataset.nombre || "";
+  const descripcion = card.dataset.descripcion || "";
+  const disponibilidad = obtenerDisponibilidadProducto(card);
+  const precioBase = String(card.dataset.precioMayor || "$0.00");
+  const precioFinal = formatearPrecioConImpuesto(precioBase);
+  const texto = [nombre, descripcion, disponibilidad, precioFinal].join("\n");
+  let textoCopiado = false;
+
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(texto);
+      textoCopiado = true;
+    } catch (error) {
+      console.warn("No se pudo usar el portapapeles moderno; se intentará el método alternativo.", error);
+    }
+  }
+
+  if (!textoCopiado) {
+    const temp = document.createElement("textarea");
+    temp.value = texto;
+    document.body.appendChild(temp);
+    temp.select();
+    textoCopiado = document.execCommand("copy");
+    temp.remove();
+  }
+
+  const esTodasDisponibles = disponibilidad === LABEL_ALL_AVAILABLE;
+  if (esTodasDisponibles) {
+    const imagenes = (card.dataset.images || "").split(",").map((src) => src.trim()).filter(Boolean);
+    imagenes.forEach((src, index) => {
+      const btn = document.createElement("a");
+      btn.href = src;
+      btn.download = `${(nombre || "producto").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-${index + 1}.jpg`;
+      btn.style.display = "none";
+      document.body.appendChild(btn);
+      setTimeout(() => btn.click(), index * 120);
+      setTimeout(() => btn.remove(), index * 140 + 400);
+    });
+    alert(textoCopiado
+      ? "Se copió la información del producto y se descargaron las imágenes."
+      : "No se pudo copiar el texto, pero se descargaron las imágenes.");
+    return;
+  }
+
+  window.modalSelectionMode = true;
+  const modalCollage = document.getElementById("modalCollage");
+  if (modalCollage) {
+    const images = (card.dataset.images || "").split(",").map((src) => src.trim()).filter(Boolean);
+    const grid = document.getElementById("modalCollageGrid");
+    const title = document.getElementById("modalCollageTitle");
+    const downloadButton = document.getElementById("modalDescargarSeleccionadas");
+    if (grid && images.length) {
+      seleccionImagenesModal.clear();
+      grid.innerHTML = "";
+      if (title) title.textContent = "Selecciona las imágenes que deseas descargar";
+      if (downloadButton) {
+        downloadButton.hidden = false;
+        downloadButton.textContent = "Descargar seleccionadas";
+      }
+      images.forEach((src, index) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "modal-collage-item modal-collage-selectable";
+        item.setAttribute("aria-pressed", "false");
+        item.setAttribute("aria-label", `Seleccionar imagen ${index + 1} de ${nombre || "producto"}`);
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = `${nombre || "Producto"} ${index + 1}`;
+        img.loading = "lazy";
+        item.appendChild(img);
+        item.addEventListener("click", () => {
+          const selected = seleccionImagenesModal.has(index);
+          if (selected) seleccionImagenesModal.delete(index);
+          else seleccionImagenesModal.add(index);
+          item.classList.toggle("selected", !selected);
+          item.setAttribute("aria-pressed", String(!selected));
+        });
+        grid.appendChild(item);
+      });
+      modalCollage.classList.add("activo");
+    }
+  }
+
+  alert(textoCopiado
+    ? "Se copió el texto del producto. Selecciona las imágenes que quieras descargar manualmente."
+    : "No se pudo copiar el texto. Selecciona las imágenes que quieras descargar manualmente.");
+}
+
+function descargarSeleccionRevendedor() {
+  const card = window.cardModalActual;
+  const modoInterno = mostrarPrecioMayor || document.body.classList.contains("modo-edicion");
+  if (!modoInterno || !card || !seleccionImagenesModal.size) {
+    alert("Selecciona al menos una imagen para descargar.");
+    return;
+  }
+
+  const nombre = (card.dataset.nombre || "producto").replace(/[^a-z0-9]/gi, "-").toLowerCase();
+  const images = (card.dataset.images || "").split(",").map((src) => src.trim()).filter(Boolean);
+  [...seleccionImagenesModal].forEach((index, downloadIndex) => {
+    const src = images[index];
+    if (!src) return;
+    const link = document.createElement("a");
+    link.href = src;
+    link.download = `${nombre}-${index + 1}.jpg`;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    setTimeout(() => link.click(), downloadIndex * 120);
+    setTimeout(() => link.remove(), downloadIndex * 140 + 400);
+  });
+  cerrarModalCollage();
+  alert(`Se descargaron ${seleccionImagenesModal.size} imágenes seleccionadas.`);
+  seleccionImagenesModal.clear();
+}
+
 /* ================= CERRAR MODAL ================= */
 function cerrarModal(){
-  document.getElementById("modalImagen").classList.remove("activo");
+  const modal = document.getElementById("modalImagen");
+  if (modal) modal.classList.remove("activo");
   cerrarModalCollage();
   actualizarEtiquetaFraganciaModal("");
   productoActual = null;
   window.cardModalActual = null;
-  // limpiar rotación automática si existe
+  if (window.modalSelectionMode) {
+    window.modalSelectionMode = false;
+  }
   if(window.modalInterval){
     clearInterval(window.modalInterval);
     window.modalInterval = null;
@@ -1141,7 +1475,6 @@ function activarModoDescargaImagenes() {
 
   modoDescargaImagenes = true;
   categoriaBaseActual = "Todos";
-  filtroSubcategoriaActual = null;
 
   const seccionDescarga = document.getElementById("seccionDescargaImagenes");
   const buscador = document.getElementById("search");
@@ -1248,13 +1581,6 @@ function filtrarCategoria(cat, btn){
     "Todos", "Forros", "Comedor", "Sábanas", "Alfombras", "Electrónicos", "Almohadas", "Fragancias", "Frazadas", "Toallas", "Mochilas", "Carteras", "Baño", "Cortinas", "Accesorios", "Otros"
   ]);
 
-  const filtrosSubcategoria = {
-    "Promociones": card => card.classList.contains("promo"),
-    "Novedades": card => card.classList.contains("new"),
-    "Proximamente": card => card.classList.contains("proximo") || card.classList.contains("proxima"),
-    "Agotados": card => card.classList.contains("agotado")
-  };
-
   if (modoDescargaImagenes) {
     if (!categoriasBase.has(cat)) return;
 
@@ -1278,12 +1604,10 @@ function filtrarCategoria(cat, btn){
     return;
   }
 
-  if (categoriasBase.has(cat)) {
-    categoriaBaseActual = cat;
-    filtroSubcategoriaActual = null;
-  } else if (filtrosSubcategoria[cat]) {
-    filtroSubcategoriaActual = cat;
-  }
+  if (!categoriasBase.has(cat)) return;
+  categoriaBaseActual = cat;
+
+  aplicarOrdenPrioridadEnTarjetas();
   
   document.getElementById("search").value = "";
 
@@ -1297,27 +1621,12 @@ function filtrarCategoria(cat, btn){
     btn.setAttribute("aria-pressed", "true");
   }
 
-  const tituloEspecial = document.getElementById("titulo-especial");
-  if (tituloEspecial) tituloEspecial.remove();
-
-  const filtroActivo = filtroSubcategoriaActual && filtrosSubcategoria[filtroSubcategoriaActual]
-    ? filtrosSubcategoria[filtroSubcategoriaActual]
-    : null;
-
   const baseEsTodos = categoriaBaseActual === "Todos";
   const mostrarAgotadosEnTodos = false;
 
   document.querySelectorAll(".categoria").forEach(sec => {
     const esCategoriaBase = baseEsTodos || sec.dataset.categoria === categoriaBaseActual;
     sec.style.display = esCategoriaBase ? "" : "none";
-  });
-
-  document.querySelectorAll(".category-title").forEach(title => {
-    if (filtroActivo && (filtroSubcategoriaActual === "Promociones" || filtroSubcategoriaActual === "Novedades" || filtroSubcategoriaActual === "Proximamente")) {
-      title.style.display = "none";
-    } else {
-      title.style.display = "";
-    }
   });
 
   document.querySelectorAll(".card").forEach(card => {
@@ -1329,15 +1638,6 @@ function filtrarCategoria(cat, btn){
       return;
     }
 
-    if (filtroActivo) {
-      if (filtroSubcategoriaActual === "Agotados" && baseEsTodos) {
-        card.style.display = "none";
-      } else {
-        card.style.display = filtroActivo(card) ? "" : "none";
-      }
-      return;
-    }
-
     if (baseEsTodos && !mostrarAgotadosEnTodos && card.classList.contains("agotado")) {
       card.style.display = "none";
       return;
@@ -1346,52 +1646,16 @@ function filtrarCategoria(cat, btn){
     card.style.display = "";
   });
 
-  if (filtroSubcategoriaActual === "Promociones") {
-    mostrarTituloEspecial("promocion");
-  } else if (filtroSubcategoriaActual === "Novedades") {
-    mostrarTituloEspecial("novedad");
-  } else if (filtroSubcategoriaActual === "Proximamente") {
-    mostrarTituloEspecial("proximamente");
-  }
-
   document.querySelectorAll(".categoria").forEach(sec => {
     const tieneVisibles = Array.from(sec.querySelectorAll(".card")).some(card => card.style.display !== "none");
     sec.style.display = tieneVisibles ? "" : "none";
   });
 
-  const target = document.querySelector("#titulo-especial")
-    || document.querySelector(`.categoria[data-categoria="${categoriaBaseActual}"]`)
+  const target = document.querySelector(`.categoria[data-categoria="${categoriaBaseActual}"]`)
     || document.querySelector(".categoria");
 
   if (target) {
     target.scrollIntoView({ behavior:"smooth", block:"start" });
-  }
-}
-
-// Función auxiliar para mostrar título especial
-function mostrarTituloEspecial(tipo) {
-  // Remover anterior si existe
-  const anterior = document.getElementById("titulo-especial");
-  if (anterior) anterior.remove();
-  
-  const titulo = document.createElement("div");
-  titulo.id = "titulo-especial";
-  titulo.className = "category-title";
-  
-  if (tipo === "promocion") {
-    titulo.textContent = "🎁 Promociones Especiales";
-  } else if (tipo === "novedad") {
-    titulo.textContent = "⚡ Novedades";
-  } else if (tipo === "proximamente") {
-    titulo.textContent = "🕒 Próximamente";
-  }
-  
-  // Insertar después del nav o antes del primer grid
-  const nav = document.querySelector("nav");
-  if (nav) {
-    nav.parentNode.insertBefore(titulo, nav.nextSibling);
-  } else {
-    document.body.insertBefore(titulo, document.querySelector(".grid"));
   }
 }
 
@@ -1439,4 +1703,9 @@ function cerrarModalCollage(){
   if(modalCollage){
     modalCollage.classList.remove("activo");
   }
+  const downloadButton = document.getElementById("modalDescargarSeleccionadas");
+  if (downloadButton) downloadButton.hidden = true;
+  const title = document.getElementById("modalCollageTitle");
+  if (title) title.textContent = "Imágenes del producto";
+  window.modalSelectionMode = false;
 }

@@ -7,14 +7,49 @@ create table if not exists public.catalog_products (
   net_price text not null default '$0.00',
   status text not null default 'Disponible'
     check (status in ('Disponible', 'Agotado', 'Próximamente')),
+  priority_level text not null default 'Prioridad 3'
+    check (priority_level in ('Prioridad 1', 'Prioridad 2', 'Prioridad 3')),
+  all_available boolean not null default false,
   is_new boolean not null default false,
   is_promotion boolean not null default false,
-  is_secure boolean not null default false,
+  is_secure boolean not null default true,
   image_urls text[] not null default '{}',
   sort_order integer not null default 0,
   updated_at timestamptz not null default now(),
   constraint catalog_products_category_name_key unique (category, name)
 );
+
+alter table public.catalog_products
+  add column if not exists priority_level text not null default 'Prioridad 3',
+  add column if not exists all_available boolean not null default false,
+  add column if not exists is_secure boolean not null default true;
+
+alter table public.catalog_products
+  alter column priority_level set default 'Prioridad 3',
+  alter column all_available set default false,
+  alter column is_secure set default true;
+
+create table if not exists public.catalog_migrations (
+  version text primary key,
+  applied_at timestamptz not null default now()
+);
+revoke all on public.catalog_migrations from public, anon, authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.catalog_migrations where version = '2026-11-product-defaults'
+  ) then
+    update public.catalog_products
+    set priority_level = 'Prioridad 3',
+        all_available = false,
+        is_secure = true;
+
+    insert into public.catalog_migrations (version)
+    values ('2026-11-product-defaults');
+  end if;
+end;
+$$;
 
 create table if not exists public.catalog_editors (
   user_id uuid primary key references auth.users (id) on delete cascade,
@@ -40,6 +75,25 @@ $$;
 
 revoke all on function public.is_catalog_editor() from public;
 grant execute on function public.is_catalog_editor() to authenticated;
+
+alter table public.catalog_migrations enable row level security;
+grant select, insert on public.catalog_migrations to authenticated;
+grant select on public.catalog_migrations to anon;
+drop policy if exists "Public can view static catalog marker" on public.catalog_migrations;
+create policy "Public can view static catalog marker"
+  on public.catalog_migrations for select
+  to anon
+  using (version = '2026-11-static-catalog');
+drop policy if exists "Authorized editors can view catalog migrations" on public.catalog_migrations;
+create policy "Authorized editors can view catalog migrations"
+  on public.catalog_migrations for select
+  to authenticated
+  using ((select public.is_catalog_editor()));
+drop policy if exists "Authorized editors can record catalog migrations" on public.catalog_migrations;
+create policy "Authorized editors can record catalog migrations"
+  on public.catalog_migrations for insert
+  to authenticated
+  with check ((select public.is_catalog_editor()));
 
 grant usage on schema public to anon, authenticated;
 grant select on public.catalog_products to anon, authenticated;
