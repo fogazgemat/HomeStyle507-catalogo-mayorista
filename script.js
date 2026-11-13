@@ -1,9 +1,9 @@
 // 1. Lista de vendedores
 const VENDEDORES = [
+    { nombre: "Francesco (Chorrera)", numero: "6236-4158" },
     { nombre: "Chris (Chorrera)", numero: "6977-8350" },
     { nombre: "Yoli", numero: "6168-3538" },
     { nombre: "Antoni", numero: "6260-6548" },
-    { nombre: "Fran (Chorrera)", numero: "6236-4158" },
     { nombre: "Génesis", numero: "6171-3520" }
 ];
 
@@ -30,7 +30,15 @@ const PROFILE_CONFIG = {
     numeroFijo: "6260-6548"
   },
   fran: {
-    vendedorFijo: "Fran (Chorrera)",
+    vendedorFijo: "Francesco (Chorrera)",
+    numeroFijo: "6236-4158"
+  },
+  "fran (chorrera)": {
+    vendedorFijo: "Francesco (Chorrera)",
+    numeroFijo: "6236-4158"
+  },
+  francesco: {
+    vendedorFijo: "Francesco (Chorrera)",
     numeroFijo: "6236-4158"
   },
   genesis: {
@@ -45,6 +53,50 @@ function normalizarPerfil(valor) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
+}
+
+function palabrasBusqueda(valor) {
+  return normalizarTextoBusqueda(valor)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function actualizarBotonUrlEspecial() {
+  const button = document.getElementById("copySpecialSearchUrl");
+  const input = document.getElementById("search");
+  if (!button || !input) return;
+  button.disabled = palabrasBusqueda(input.value).length === 0;
+}
+
+async function copiarUrlBusquedaEspecial() {
+  const input = document.getElementById("search");
+  const words = palabrasBusqueda(input ? input.value : "");
+  if (!words.length) return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("modo");
+  url.searchParams.set("grupo", words.join("-"));
+  let copied = false;
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      copied = true;
+    } catch (error) {
+      console.warn("No se pudo copiar la URL con el portapapeles moderno; se intentará el método alternativo.", error);
+    }
+  }
+  if (!copied) {
+    const temporaryInput = document.createElement("textarea");
+    temporaryInput.value = url.toString();
+    temporaryInput.setAttribute("readonly", "");
+    temporaryInput.style.position = "fixed";
+    temporaryInput.style.opacity = "0";
+    document.body.appendChild(temporaryInput);
+    temporaryInput.select();
+    copied = document.execCommand("copy");
+    temporaryInput.remove();
+  }
+  alert(copied ? "URL especial copiada." : "No se pudo copiar la URL especial.");
 }
 
 function obtenerConfigURL() {
@@ -71,9 +123,10 @@ let categoriaBaseActual = "Todos";
 let seleccion = JSON.parse(localStorage.getItem("seleccion")) || [];
 let productoActual = null; // <--- ESTA ES LA QUE FALTABA
 let intervaloCarruselesTarjetas = null;
-let tiempoRestante = 7;
+let tiempoRestante = 5;
 let intervaloTimer = null;
 let mostrarPrecioMayor = false;
+let grupoEspecialActivo = new URLSearchParams(window.location.search).get("grupo");
 let toquesLogoMayor = [];
 let modoDescargaImagenes = false;
 let imagenesDescarga = [];
@@ -303,6 +356,12 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Aplicar filtrado de agotados al cargar la página
   filtrarCategoria("Todos", null);
+  if (grupoEspecialActivo) {
+    const searchInput = document.getElementById("search");
+    if (searchInput) searchInput.value = grupoEspecialActivo.replace(/-/g, " ");
+    filtrar();
+  }
+  actualizarBotonUrlEspecial();
   
   // Inicializar productos promocionales (mostrar precio)
   inicializarProductosPromocionales();
@@ -410,20 +469,32 @@ function actualizarDisponibilidadModal(card) {
 
 function actualizarPreciosModal(card) {
   const precioMayorElem = document.getElementById("modalPrecioMayor");
+  const precioDetalElem = document.getElementById("modalPrecioDetal");
+  const precioCantidadElem = document.getElementById("modalPrecioCantidad");
   const accionRevendedor = document.getElementById("modalRevendedorAction");
   if (!precioMayorElem || !card) return;
-  const modoInterno = mostrarPrecioMayor || document.body.classList.contains("modo-edicion");
+  const modoEdicion = document.body.classList.contains("modo-edicion");
+  const modoMayorista = mostrarPrecioMayor && !modoEdicion;
+  const modoInterno = modoMayorista || modoEdicion;
 
   if (modoInterno) {
     const precioBase = card.dataset.precioMayor || "$0.00";
     precioMayorElem.style.display = "block";
     precioMayorElem.textContent = `Precio neto: ${formatearPrecio(precioBase)}`;
     if (accionRevendedor) accionRevendedor.hidden = false;
-    return;
+  } else {
+    precioMayorElem.style.display = "none";
+    if (accionRevendedor) accionRevendedor.hidden = true;
   }
 
-  precioMayorElem.style.display = "none";
-  if (accionRevendedor) accionRevendedor.hidden = true;
+  if (precioDetalElem) {
+    precioDetalElem.hidden = !modoEdicion && (modoMayorista || card.dataset.mostrarPrecioDetal !== "true");
+    precioDetalElem.textContent = `Precio al detal: ${formatearPrecio(card.dataset.precioDetal || "$0.00")}`;
+  }
+  if (precioCantidadElem) {
+    precioCantidadElem.hidden = !modoEdicion && card.dataset.mostrarPrecioCantidad !== "true";
+    precioCantidadElem.textContent = `Precio especial por cantidad: ${formatearPrecio(card.dataset.precioCantidad || "$0.00")}`;
+  }
 }
 
 /* ================= ALTERNANCIA DE ESLOGAN ================= */
@@ -549,7 +620,21 @@ function configurarEventListeners() {
   // Buscador
   const searchInput = document.getElementById("search");
   if (searchInput) {
-    searchInput.addEventListener("input", filtrar);
+    searchInput.addEventListener("input", () => {
+      if (grupoEspecialActivo) {
+        grupoEspecialActivo = null;
+        const url = new URL(window.location.href);
+        url.searchParams.delete("grupo");
+        window.history.replaceState(null, "", url);
+      }
+      filtrar();
+      actualizarBotonUrlEspecial();
+    });
+  }
+
+  const copySearchUrlButton = document.getElementById("copySpecialSearchUrl");
+  if (copySearchUrlButton) {
+    copySearchUrlButton.addEventListener("click", copiarUrlBusquedaEspecial);
   }
 
   // Botones de categoría
@@ -1203,19 +1288,21 @@ function enviarWA() {
       finalizarYEnviar(APP_CONFIG.numeroFijo);
       return;
     }
-    
+
     // Mostrar el modal de vendedores
     const modalVen = document.getElementById("modalVendedor");
     const listaVen = document.getElementById("listaVendedores");
     const timerDisplay = document.getElementById("timer");
+    if (!modalVen || !listaVen || !timerDisplay) return;
     
     listaVen.innerHTML = ""; // Limpiar
     modalVen.style.display = "flex";
-    tiempoRestante = 7;
+    clearInterval(intervaloTimer);
+    tiempoRestante = 5;
     timerDisplay.textContent = tiempoRestante;
 
     // Crear botones de vendedores
-    VENDEDORES.forEach(v => {
+    VENDEDORES.forEach((v) => {
         const btn = document.createElement("button");
         btn.className = "btn-vendedor";
         btn.textContent = v.nombre;
@@ -1229,9 +1316,7 @@ function enviarWA() {
         timerDisplay.textContent = tiempoRestante;
         if (tiempoRestante <= 0) {
             clearInterval(intervaloTimer);
-            // Selección aleatoria si se acaba el tiempo
-            const azar = VENDEDORES[Math.floor(Math.random() * VENDEDORES.length)];
-            finalizarYEnviar(azar.numero);
+            finalizarYEnviar(VENDEDORES[0].numero);
         }
     }, 1000);
 }
@@ -1361,7 +1446,7 @@ function recolectarImagenesParaDescarga() {
       }
 
       lista.forEach(ruta => {
-        if (!ruta || ruta.includes("img_categoria_00_0.jpeg")) return;
+        if (!ruta || ruta.includes("img/categoria/00/0.jpeg")) return;
 
         contadorImagen += 1;
         listaImagenes.push({
@@ -1491,6 +1576,7 @@ function activarModoDescargaImagenes() {
     buscador.value = "";
     buscador.placeholder = PLACEHOLDER_BUSCADOR_DESCARGA;
   }
+  actualizarBotonUrlEspecial();
 
   document.querySelectorAll("nav button").forEach(btn => {
     const esTodos = btn.dataset.category === "Todos";
@@ -1524,6 +1610,7 @@ function desactivarModoDescargaImagenes() {
     buscador.value = "";
     buscador.placeholder = PLACEHOLDER_BUSCADOR_NORMAL;
   }
+  actualizarBotonUrlEspecial();
 }
 
 function descargarImagenesSeleccionadas() {
@@ -1553,13 +1640,21 @@ function filtrar(){
     return;
   }
 
-  const q = (document.getElementById("search").value || "").toLowerCase().trim();
+  const searchInput = document.getElementById("search");
+  const q = normalizarTextoBusqueda(searchInput ? searchInput.value : "");
+  const palabrasExactas = grupoEspecialActivo ? palabrasBusqueda(grupoEspecialActivo) : [];
 
-  // Filtrar cards por nombre
+  // El título visible de la tarjeta es el único texto considerado por el buscador.
   document.querySelectorAll(".card").forEach(card=>{
     try {
-      const nombre = (card.dataset.nombre || "").toLowerCase();
-      const visible = !q || coincideFuzzy(nombre, q);
+      const titulo = normalizarTextoBusqueda(card.querySelector(".card-info h3")?.textContent || "");
+      const seccion = card.closest(".categoria");
+      const perteneceCategoria = categoriaBaseActual === "Todos" || seccion?.dataset.categoria === categoriaBaseActual;
+      const agotadoOculto = categoriaBaseActual === "Todos" && card.classList.contains("agotado");
+      const visiblePorBusqueda = palabrasExactas.length
+        ? palabrasExactas.every((word) => palabrasBusqueda(titulo).includes(word))
+        : !q || coincideFuzzy(titulo, q);
+      const visible = perteneceCategoria && !agotadoOculto && !card.classList.contains("sin-imagenes-publicas") && visiblePorBusqueda;
       card.style.display = visible ? "" : "none";
     } catch (error) {
       console.error("Error en filtro de card:", error);
@@ -1608,8 +1703,11 @@ function filtrarCategoria(cat, btn){
   categoriaBaseActual = cat;
 
   aplicarOrdenPrioridadEnTarjetas();
-  
-  document.getElementById("search").value = "";
+  const buscador = document.getElementById("search");
+  if (buscador) {
+    buscador.value = grupoEspecialActivo ? grupoEspecialActivo.replace(/-/g, " ") : "";
+  }
+  actualizarBotonUrlEspecial();
 
   document.querySelectorAll("nav button").forEach(b=>{
     b.classList.remove("active");
@@ -1643,16 +1741,25 @@ function filtrarCategoria(cat, btn){
       return;
     }
 
+    if (card.classList.contains("sin-imagenes-publicas")) {
+      card.style.display = "none";
+      return;
+    }
+
     card.style.display = "";
   });
 
   document.querySelectorAll(".categoria").forEach(sec => {
-    const tieneVisibles = Array.from(sec.querySelectorAll(".card")).some(card => card.style.display !== "none");
+    const tieneVisibles = Array.from(sec.querySelectorAll(".card")).some(card =>
+      card.style.display !== "none" && !card.classList.contains("sin-imagenes-publicas")
+    );
     sec.style.display = tieneVisibles ? "" : "none";
   });
 
   const target = document.querySelector(`.categoria[data-categoria="${categoriaBaseActual}"]`)
     || document.querySelector(".categoria");
+
+  if (grupoEspecialActivo) filtrar();
 
   if (target) {
     target.scrollIntoView({ behavior:"smooth", block:"start" });

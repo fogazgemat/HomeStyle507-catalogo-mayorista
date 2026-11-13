@@ -22,8 +22,8 @@ Agrega la clase `novedad` cuando el producto es nuevo en el catálogo.
   data-nombre="Forro Sofá 311 Poliester Premium" 
   data-descripcion="..." 
   data-precio="$42.80" 
-  data-images="img_forros_02_1.jpeg,...">
-  <img src="img_forros_02_1.jpeg" alt="...">
+  data-images="img/forros/02/1.jpeg,...">
+  <img src="img/forros/02/1.jpeg" alt="...">
   <div class="card-info">
     <h3>Forro 311 Poliester Premium</h3>
     <button onclick="toggleProducto(this)">Consultar</button>
@@ -47,8 +47,8 @@ Agrega la clase `promocion` para destacar productos con descuentos especiales.
   data-nombre="Forro Sofá 321 Licra Estampado"
   data-descripcion="..."
   data-precio="$19.99"
-  data-images="img_forros_23_1.jpeg,...">
-  <img src="img_forros_23_1.jpeg" alt="...">
+  data-images="img/forros/23/1.jpeg,...">
+  <img src="img/forros/23/1.jpeg" alt="...">
   <div class="card-info">
     <h3>Forro 321 Licra Estampado</h3>
     <button onclick="toggleProducto(this)">Consultar</button>
@@ -171,7 +171,7 @@ Usa estos enlaces desde el `index.html` principal:
 - Antoni: `index.html?perfil=Antoni`
 - Chris (Chorrera): `index.html?perfil=Chris (Chorrera)`
 - Génesis: `index.html?perfil=genesis`
-- Fran (Chorrera): `index.html?perfil=Fran (Chorrera)`
+- Francesco (Chorrera): `index.html?perfil=francesco`
 - Yoli: `index.html?perfil=yoli`
 
 > Nota: Las carpetas por nombre de trabajador ya no son necesarias.

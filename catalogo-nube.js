@@ -49,7 +49,7 @@
     overlay.className = "editor-auth-overlay";
     overlay.innerHTML = `
       <section class="editor-auth-card" role="dialog" aria-modal="true" aria-labelledby="editorAuthTitle">
-        <img src="img_logo_logo.png" alt="" class="editor-auth-logo">
+        <img src="img/logo/logo.png" alt="" class="editor-auth-logo">
         <p class="editor-auth-kicker">HOMESTYLE507 · EQUIPO</p>
         <h1 id="editorAuthTitle">Acceso de editores</h1>
         <p class="editor-auth-copy">Inicia sesión con la cuenta autorizada para administrar el catálogo.</p>
@@ -113,15 +113,26 @@
       : storedImages.length
         ? storedImages
         : [card.querySelector("img")?.getAttribute("src")].filter(Boolean);
+    const imageStatuses = imagePaths.map((_, index) =>
+      row.image_statuses?.[index] === "activa" ? "activa" : "disponible"
+    );
+    const visibleImagePaths = state.editor
+      ? imagePaths
+      : imagePaths.filter((_, index) => imageStatuses[index] === "disponible");
 
     card.dataset.cloudId = row.id;
     card.dataset.categoriaOriginal = row.category;
     card.dataset.nombre = row.name;
     card.dataset.descripcion = row.description || "";
     card.dataset.precioMayor = row.net_price || "$0.00";
-    card.dataset.images = imagePaths.join(",");
+    card.dataset.precioDetal = row.retail_price || "$0.00";
+    card.dataset.precioCantidad = row.quantity_price || "$0.00";
+    card.dataset.mostrarPrecioDetal = String(Boolean(row.show_retail_price));
+    card.dataset.mostrarPrecioCantidad = String(Boolean(row.show_quantity_price));
+    card.dataset.images = visibleImagePaths.join(",");
     card.dataset.prioridad = priorityLevel;
     card.dataset.todasDisponibles = String(allAvailable);
+    card.classList.toggle("sin-imagenes-publicas", !state.editor && visibleImagePaths.length === 0);
     card.classList.remove("agotado", "proximo", "proxima", "novedad", "promocion", "seguro-seguro");
     card.classList.add("card");
     if (row.status === "Agotado") card.classList.add("agotado");
@@ -144,8 +155,10 @@
     card.querySelectorAll(".badge-todas-disponibles, .card-disponibilidad").forEach((item) => item.remove());
 
     const image = card.querySelector("img");
-    if (image && imagePaths.length) {
-      image.src = imagePaths[0];
+    if (image) {
+      image.hidden = visibleImagePaths.length === 0;
+      if (visibleImagePaths.length) image.src = visibleImagePaths[0];
+      else image.removeAttribute("src");
       image.alt = row.name;
     }
     const title = card.querySelector(".card-info h3");
@@ -206,10 +219,20 @@
       const staticImageReferences = new Set(staticImages.map(comparableImageReference));
       const cloudImages = (row.image_urls || [])
         .filter((image) => !staticImageReferences.has(comparableImageReference(image)));
+      const mergedImages = [...new Set([...staticImages, ...cloudImages])];
+      const staticStatuses = new Map(staticImages.map((image, index) => [
+        image,
+        staticRow?.image_statuses?.[index] === "activa" ? "activa" : "disponible"
+      ]));
+      const cloudStatuses = new Map((row.image_urls || []).map((image, index) => [
+        image,
+        row.image_statuses?.[index] === "activa" ? "activa" : "disponible"
+      ]));
       mergedRows.set(key, {
         ...staticRow,
         ...row,
-        image_urls: [...new Set([...staticImages, ...cloudImages])],
+        image_urls: mergedImages,
+        image_statuses: mergedImages.map((image) => cloudStatuses.get(image) || staticStatuses.get(image) || "disponible"),
         priority_level: hasLegacyProductDefaults(row) ? "Prioridad 3" : row.priority_level || staticRow?.priority_level || "Prioridad 3",
         all_available: hasLegacyProductDefaults(row) ? false : typeof row.all_available === "boolean" ? row.all_available : staticRow?.all_available || false,
         is_secure: hasLegacyProductDefaults(row) ? true : typeof row.is_secure === "boolean" ? row.is_secure : staticRow?.is_secure ?? true
@@ -292,6 +315,10 @@
           display_title: title ? title.textContent.trim() : card.dataset.nombre,
           description: card.dataset.descripcion || "",
           net_price: card.dataset.precioMayor || "$0.00",
+          retail_price: "$0.00",
+          quantity_price: "$0.00",
+          show_retail_price: false,
+          show_quantity_price: false,
           status,
           priority_level: normalizarPrioridad(card.dataset.prioridad || "Prioridad 3"),
           all_available: /^(true|1|si|yes)$/i.test(card.dataset.todasDisponibles || "false"),
@@ -299,6 +326,7 @@
           is_promotion: classes.contains("promocion") || classes.contains("promo"),
           is_secure: true,
           image_urls: imagePaths,
+          image_statuses: imagePaths.map(() => "disponible"),
           sort_order: order++
         });
       });
@@ -407,10 +435,11 @@
       else row.remove();
     });
     document.querySelectorAll(".editor-edit-row").forEach((row) => {
-      const field = row.querySelector("#modalNombre, #modalDesc, #modalPrecioMayor");
+      const field = row.querySelector("#modalNombre, #modalDesc, #modalPrecioMayor, #modalPrecioDetal, #modalPrecioCantidad");
       if (field) row.replaceWith(field);
       else row.remove();
     });
+    if (state.rows.length) renderCatalog(state.rows);
   }
 
   function showEditorBar(email) {
@@ -561,7 +590,12 @@
     input.value = original || "";
     input._editorTarget = target;
     input._editorOriginalText = target.textContent;
-    if (field === "net_price") input.inputMode = "decimal";
+    if (["net_price", "retail_price", "quantity_price"].includes(field)) input.inputMode = "decimal";
+    const fieldLabels = {
+      net_price: "precio neto",
+      retail_price: "precio al detal",
+      quantity_price: "precio especial por cantidad"
+    };
     const saveButton = target.parentElement.querySelector(".editor-pencil") ||
       target.nextElementSibling;
     if (!saveButton) return;
@@ -581,9 +615,12 @@
       saveButton.disabled = true;
       try {
         target.removeAttribute("data-editing");
-        target.textContent = field === "net_price" && target.id === "modalPrecioMayor"
-          ? `Precio neto: ${value}`
-          : value;
+        const priceLabels = {
+          net_price: "Precio neto",
+          retail_price: "Precio al detal",
+          quantity_price: "Precio especial por cantidad"
+        };
+        target.textContent = priceLabels[field] ? `${priceLabels[field]}: ${value}` : value;
         input.replaceWith(target);
         await updateProduct(card, { [field]: value });
         showNotice("Cambio guardado y compartido.", false);
@@ -604,7 +641,7 @@
         target.removeAttribute("data-editing");
         input.replaceWith(target);
         saveButton.classList.remove("is-saving");
-        saveButton.setAttribute("aria-label", `Editar ${field === "net_price" ? "precio" : "texto"}`);
+        saveButton.setAttribute("aria-label", `Editar ${fieldLabels[field] || "texto"}`);
         saveButton.title = saveButton.getAttribute("aria-label");
         saveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"></path></svg>';
         saveButton.onclick = () => beginInlineEdit(card, field, target);
@@ -648,10 +685,12 @@
         <label><input type="checkbox" class="editor-promo-flag"> Promoción</label>
         <label><input type="checkbox" class="editor-secure-flag"> En proceso de revisión y finalización</label>
         <label><input type="checkbox" class="editor-all-available-flag"> Todas disponibles</label>
+        <label><input type="checkbox" class="editor-show-retail-flag"> Mostrar precio al detal a clientes</label>
+        <label><input type="checkbox" class="editor-show-quantity-flag"> Mostrar precio especial por cantidad</label>
       </div>
       <div class="editor-image-manager">
         <h4>Fotos del producto</h4>
-        <p>Desmarca las fotos que quieras quitar o agrega nuevas. Conserva al menos una foto.</p>
+        <p>Elige si cada foto queda activa solo para editores o disponible para clientes y revendedores. Desmarca para eliminarla.</p>
         <div class="editor-image-list"></div>
         <label class="editor-file-label">Agregar fotos
           <input class="editor-new-images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
@@ -688,7 +727,9 @@
           all_available: panel.querySelector(".editor-all-available-flag").checked,
           is_new: panel.querySelector(".editor-new-flag").checked,
           is_promotion: panel.querySelector(".editor-promo-flag").checked,
-          is_secure: panel.querySelector(".editor-secure-flag").checked
+          is_secure: panel.querySelector(".editor-secure-flag").checked,
+          show_retail_price: panel.querySelector(".editor-show-retail-flag").checked,
+          show_quantity_price: panel.querySelector(".editor-show-quantity-flag").checked
         });
         window.cerrarModal();
         showNotice("Detalles guardados y compartidos.", false);
@@ -708,9 +749,13 @@
     const name = document.getElementById("modalNombre");
     const description = document.getElementById("modalDesc");
     const price = document.getElementById("modalPrecioMayor");
+    const retailPrice = document.getElementById("modalPrecioDetal");
+    const quantityPrice = document.getElementById("modalPrecioCantidad");
     wrapModalField(name, "name", card, "nombre");
     wrapModalField(description, "description", card, "descripción");
     wrapModalField(price, "net_price", card, "precio");
+    wrapModalField(retailPrice, "retail_price", card, "precio al detal");
+    wrapModalField(quantityPrice, "quantity_price", card, "precio especial por cantidad");
     const panel = document.querySelector(".editor-product-panel");
     panel.querySelector(".editor-category-select").value = row.category;
     panel.querySelector(".editor-status-select").value = row.status;
@@ -720,10 +765,12 @@
     panel.querySelector(".editor-promo-flag").checked = row.is_promotion;
     panel.querySelector(".editor-secure-flag").checked = legacyDefaults || Boolean(row.is_secure);
     panel.querySelector(".editor-all-available-flag").checked = legacyDefaults ? false : Boolean(row.all_available || false);
+    panel.querySelector(".editor-show-retail-flag").checked = Boolean(row.show_retail_price);
+    panel.querySelector(".editor-show-quantity-flag").checked = Boolean(row.show_quantity_price);
     const list = panel.querySelector(".editor-image-list");
     list.replaceChildren();
     (row.image_urls || []).forEach((url) => {
-      const item = document.createElement("label");
+      const item = document.createElement("div");
       item.className = "editor-image-item";
       const image = document.createElement("img");
       image.src = url;
@@ -733,8 +780,12 @@
       check.checked = true;
       check.value = url;
       const text = document.createElement("span");
-      text.textContent = "Conservar";
-      item.append(image, check, text);
+      text.textContent = "Conservar foto";
+      const status = document.createElement("select");
+      status.setAttribute("aria-label", `Visibilidad de la foto ${list.children.length + 1}`);
+      status.innerHTML = '<option value="activa">Activa (solo editores)</option><option value="disponible">Disponible (clientes y revendedores)</option>';
+      status.value = row.image_statuses?.[list.children.length] === "activa" ? "activa" : "disponible";
+      item.append(check, image, text, status);
       list.appendChild(item);
     });
     panel.querySelector(".editor-new-images").value = "";
@@ -809,8 +860,10 @@
     const row = card && rowForCard(card);
     if (!row) return;
     const panel = document.querySelector(".editor-product-panel");
-    const keptUrls = Array.from(panel.querySelectorAll(".editor-image-item input:checked"))
-      .map((input) => input.value);
+    const keptItems = Array.from(panel.querySelectorAll(".editor-image-item"))
+      .filter((item) => item.querySelector('input[type="checkbox"]').checked);
+    const keptUrls = keptItems.map((item) => item.querySelector('input[type="checkbox"]').value);
+    const keptStatuses = keptItems.map((item) => item.querySelector("select").value);
     const files = Array.from(panel.querySelector(".editor-new-images").files || []);
     if (keptUrls.length + files.length === 0) {
       showNotice("El producto necesita conservar al menos una foto.", true);
@@ -822,7 +875,10 @@
     try {
       uploads = await uploadImages(files);
       const finalImages = keptUrls.concat(uploads.map((image) => image.url));
-      await updateProduct(card, { image_urls: finalImages });
+      await updateProduct(card, {
+        image_urls: finalImages,
+        image_statuses: keptStatuses.concat(uploads.map(() => "activa"))
+      });
       const removedStoragePaths = (row.image_urls || [])
         .filter((url) => !keptUrls.includes(url))
         .map(storagePathFromUrl)
@@ -871,21 +927,26 @@
         <button type="button" class="editor-dialog-close" aria-label="Cerrar">×</button>
         <p class="editor-auth-kicker">HOMESTYLE507 · CATÁLOGO</p>
         <h2>Agregar producto</h2>
-        <p>Completa la información y selecciona sus fotos. Se verá en las dos páginas al guardar.</p>
+        <p>Completa la información y selecciona si las fotos quedan activas para editores o disponibles para clientes y revendedores.</p>
         <label>Categoría<select name="category" required></select></label>
         <label>Nombre del producto<input name="name" required></label>
         <label>Título para la tarjeta<input name="display_title" required></label>
         <label>Descripción<textarea name="description" rows="4"></textarea></label>
         <div class="editor-product-grid">
           <label>Precio neto<input name="net_price" value="$0.00" required></label>
+          <label>Precio al detal<input name="retail_price" value="$0.00" required></label>
+          <label>Precio especial por cantidad<input name="quantity_price" value="$0.00" required></label>
           <label>Disponibilidad<select name="status"><option>Disponible</option><option>Agotado</option><option>Próximamente</option></select></label>
           <label>Prioridad<select name="priority_level"><option>Prioridad 3</option><option>Prioridad 2</option><option>Prioridad 1</option></select></label>
+          <label>Visibilidad inicial de fotos<select name="image_status"><option value="activa">Activa (solo editores)</option><option value="disponible">Disponible (clientes y revendedores)</option></select></label>
         </div>
         <div class="editor-product-flags">
           <label><input type="checkbox" name="is_new"> Novedad</label>
           <label><input type="checkbox" name="is_promotion"> Promoción</label>
           <label><input type="checkbox" name="is_secure" checked> En proceso de revisión y finalización</label>
           <label><input type="checkbox" name="all_available"> Todas disponibles</label>
+          <label><input type="checkbox" name="show_retail_price"> Mostrar precio al detal a clientes</label>
+          <label><input type="checkbox" name="show_quantity_price"> Mostrar precio especial por cantidad</label>
         </div>
         <label class="editor-file-label">Fotos del producto<input name="images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required></label>
         <p class="editor-auth-message editor-form-message" aria-live="polite"></p>
@@ -921,6 +982,10 @@
           display_title: data.display_title.trim(),
           description: data.description.trim(),
           net_price: data.net_price.trim(),
+          retail_price: data.retail_price.trim(),
+          quantity_price: data.quantity_price.trim(),
+          show_retail_price: form.elements.show_retail_price.checked,
+          show_quantity_price: form.elements.show_quantity_price.checked,
           status: data.status,
           priority_level: data.priority_level || "Prioridad 3",
           all_available: Boolean(form.elements.all_available.checked),
@@ -928,6 +993,7 @@
           is_promotion: form.elements.is_promotion.checked,
           is_secure: form.elements.is_secure.checked,
           image_urls: filesUploaded.map((image) => image.url),
+          image_statuses: filesUploaded.map(() => data.image_status),
           sort_order: state.rows.filter((row) => row.category === data.category).length
         };
         const { error } = await state.client.from(TABLE).insert(payload);

@@ -486,9 +486,14 @@ header span{
 .search-box{
   padding: 8px 12px;
   position:relative;
+  display:flex;
+  align-items:center;
+  gap:8px;
 }
 
 .search-box input{
+  flex:1 1 auto;
+  min-width:0;
   width:100%;
   padding: clamp(10px, 2.5vw, 16px);
   border-radius:20px;
@@ -497,6 +502,24 @@ header span{
   outline:none;
   transition: border-color 0.3s;
   min-height: 42px;
+}
+
+.search-share-button{
+  flex:0 0 42px;
+  width:42px;
+  height:42px;
+  border:0;
+  border-radius:12px;
+  background:var(--primary);
+  color:#fff;
+  font-size:1.35rem;
+  font-weight:900;
+  cursor:pointer;
+}
+
+.search-share-button:disabled{
+  opacity:.45;
+  cursor:not-allowed;
 }
 
 .search-box input:focus {
@@ -999,6 +1022,15 @@ body.modo-nocturno .descarga-imagenes-estado {
   background: #1e7a5b;
 }
 
+#modalRevendedorAction[hidden]{
+  display:none;
+}
+
+#modalPrecioDetal[hidden],
+#modalPrecioCantidad[hidden]{
+  display:none;
+}
+
 body.modo-nocturno .card-info > button:not(.selected):not(:disabled){
   background:#e0b75a;
   color:#0b1220;
@@ -1376,6 +1408,21 @@ body.editor-auth-required{
   min-height:0;
   border-radius:6px;
   object-fit:cover;
+}
+
+.editor-image-item select{
+  width:100%;
+  min-height:38px;
+  padding:5px;
+  border:1px solid #cbd5e1;
+  border-radius:7px;
+  color:#10233e;
+  font:inherit;
+  font-size:.72rem;
+}
+
+.card.sin-imagenes-publicas{
+  display:none !important;
 }
 
 .editor-file-label{
