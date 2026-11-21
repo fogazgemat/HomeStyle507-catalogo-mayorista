@@ -136,7 +136,12 @@ const PLACEHOLDER_BUSCADOR_NORMAL = "Buscar productos...";
 const PLACEHOLDER_BUSCADOR_DESCARGA = "Buscar imágenes...";
 const CLICKS_ACTIVACION_MAYOR = 7;
 const VENTANA_ACTIVACION_MAYOR_MS = 5000;
+const CLICKS_DESBLOQUEO_GRID = 7;
 const STORAGE_THEME_KEY = "catalogoTema";
+const STORAGE_RESELLER_AUTH_KEY = "catalogoRevendedorAutorizado";
+const STORAGE_RESELLER_MODE_KEY = "catalogoModoRevendedor";
+const STORAGE_GRID_SIX_KEY = "catalogoGridSeisDesbloqueado";
+const STORAGE_WELCOME_KEY = "catalogoBienvenidaCompletada";
 const THEME_LIGHT = "claro";
 const THEME_DARK = "nocturno";
 const PRIORIDAD_RANK = {
@@ -327,6 +332,9 @@ function inicializarControlTema() {
 document.addEventListener("DOMContentLoaded", () => {
   inicializarControlTema();
   aplicarConfiguracionUI();
+  if (localStorage.getItem(STORAGE_GRID_SIX_KEY) === "true" && !GRID_COLUMN_CYCLE.includes(6)) {
+    GRID_COLUMN_CYCLE.push(6);
+  }
   restaurarSeleccion();
   actualizarContador();
   actualizarBotonWA();
@@ -353,6 +361,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // Iniciar alternancia de eslogan
   iniciarAlternanciaEslogan();
   iniciarModoMayoristaDesdeLogo();
+  inicializarAccesoRevendedor();
+  inicializarBienvenida();
+  iniciarMensajeNavideno();
+  if (localStorage.getItem(STORAGE_RESELLER_AUTH_KEY) === "true" &&
+      localStorage.getItem(STORAGE_RESELLER_MODE_KEY) === "true") {
+    aplicarModoMayorista(true);
+  }
   
   // Aplicar filtrado de agotados al cargar la página
   filtrarCategoria("Todos", null);
@@ -421,6 +436,22 @@ function aplicarPreferenciaColumnasGrid() {
   if (toggleText) toggleText.textContent = `Ver ${siguiente} ${siguiente === 1 ? "columna" : "columnas"}`;
 }
 
+let toquesSelectorColumnas = [];
+
+function registrarToqueSelectorColumnas() {
+  const ahora = Date.now();
+  toquesSelectorColumnas = toquesSelectorColumnas.filter(ts => ahora - ts <= VENTANA_ACTIVACION_MAYOR_MS);
+  toquesSelectorColumnas.push(ahora);
+  if (toquesSelectorColumnas.length < CLICKS_DESBLOQUEO_GRID || GRID_COLUMN_CYCLE.includes(6)) return;
+
+  GRID_COLUMN_CYCLE.push(6);
+  localStorage.setItem(STORAGE_GRID_SIX_KEY, "true");
+  localStorage.setItem("gridColumnsMode", "6");
+  const status = document.getElementById("gridToggleStatus");
+  if (status) status.textContent = "Se desbloquearon y activaron las 6 columnas.";
+  aplicarPreferenciaColumnasGrid();
+}
+
 function registrarToqueLogoMayor() {
   const ahora = Date.now();
   toquesLogoMayor.push(ahora);
@@ -433,7 +464,15 @@ function registrarToqueLogoMayor() {
 }
 
 function alternarModoMayorista() {
-  mostrarPrecioMayor = !mostrarPrecioMayor;
+  if (localStorage.getItem(STORAGE_RESELLER_AUTH_KEY) !== "true") {
+    mostrarAccesoRevendedor();
+    return;
+  }
+  aplicarModoMayorista(true);
+}
+
+function aplicarModoMayorista(activo) {
+  mostrarPrecioMayor = activo;
   document.body.classList.toggle("modo-mayorista", mostrarPrecioMayor);
 
   const logo = document.querySelector(".header-brand .logo-img");
@@ -444,6 +483,375 @@ function alternarModoMayorista() {
   if (window.cardModalActual) {
     actualizarPreciosModal(window.cardModalActual);
   }
+}
+
+function mostrarAccesoRevendedor() {
+  const modal = document.getElementById("resellerAccess");
+  const input = document.getElementById("resellerAccessCode");
+  const message = document.getElementById("resellerAccessMessage");
+  if (!modal || !input || !message) return;
+  input.value = "";
+  message.textContent = "";
+  modal.classList.add("activo");
+  modal.setAttribute("aria-hidden", "false");
+  input.focus();
+}
+
+function cerrarAccesoRevendedor() {
+  const modal = document.getElementById("resellerAccess");
+  if (!modal) return;
+  modal.classList.remove("activo");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+function inicializarAccesoRevendedor() {
+  const form = document.getElementById("resellerAccessForm");
+  const input = document.getElementById("resellerAccessCode");
+  const message = document.getElementById("resellerAccessMessage");
+  const cancel = document.getElementById("resellerAccessCancel");
+  const modal = document.getElementById("resellerAccess");
+  if (!form || !input || !message || !cancel || !modal) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (input.value !== "507") {
+      message.textContent = "Código incorrecto. Puedes intentarlo de nuevo cuando quieras.";
+      input.value = "";
+      input.focus();
+      return;
+    }
+
+    localStorage.setItem(STORAGE_RESELLER_AUTH_KEY, "true");
+    localStorage.setItem(STORAGE_RESELLER_MODE_KEY, "true");
+    cerrarAccesoRevendedor();
+    aplicarModoMayorista(true);
+  });
+  cancel.addEventListener("click", cerrarAccesoRevendedor);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) cerrarAccesoRevendedor();
+  });
+}
+
+const PRESENTACION_PRINCIPAL = [
+  {
+    titulo: "¡Bienvenidas a Home Style 507!",
+    texto: "Nos alegra tenerte aquí. Acompáñanos en un recorrido breve y mira cómo encontrar tus favoritos.",
+    demostracion: "Explora el catálogo a tu ritmo: estamos aquí para ayudarte.",
+    destino: ".main-header",
+    accion: "saludo"
+  },
+  {
+    titulo: "Mira qué fácil es buscar",
+    texto: "El buscador escribe una palabra y enseguida muestra productos relacionados.",
+    demostracion: "Escribiendo “sábanas” y mostrando resultados reales…",
+    destino: "#search",
+    accion: "buscar",
+    valor: "sábanas"
+  },
+  {
+    titulo: "Explora una categoría",
+    texto: "Con un toque puedes ver solo los productos de una categoría. Observa cómo cambia el catálogo.",
+    demostracion: "Abriendo la categoría Cortinas…",
+    destino: "#catNav",
+    accion: "categoria",
+    valor: "Cortinas"
+  },
+  {
+    titulo: "Mira cada producto de cerca",
+    texto: "Toca la imagen de un producto para abrir su ficha y conocer más detalles.",
+    demostracion: "Abriendo una ficha de producto…",
+    destino: "#catalogo .categoria:not(#priorityOneSection) .card img",
+    accion: "producto"
+  },
+  {
+    titulo: "Todo para sentirte en casa",
+    texto: "Recorre las categorías y guarda tus productos favoritos para consultarlos cuando quieras.",
+    demostracion: "¡Tu próxima idea para el hogar puede estar aquí!",
+    destino: "#catNav",
+    accion: "saludo"
+  }
+];
+
+const PRESENTACION_CATEGORIAS = [
+  {
+    titulo: "Encuentra ideas a tu manera",
+    texto: "Cada categoría reúne ideas para que encuentres lo que mejor combina contigo.",
+    demostracion: "Toca una categoría para ver sus productos.",
+    destino: "#catNav"
+  },
+  {
+    titulo: "Textiles para descansar",
+    texto: "Descubre sábanas, frazadas y almohadas para hacer más acogedor tu espacio.",
+    demostracion: "Mostrando la categoría Sábanas…",
+    destino: '[data-categoria="Sábanas"]',
+    accion: "categoria",
+    valor: "Sábanas"
+  },
+  {
+    titulo: "Detalles que transforman",
+    texto: "Explora cortinas y accesorios que dan calidez y personalidad a cada ambiente.",
+    demostracion: "Mostrando la categoría Cortinas…",
+    destino: '[data-categoria="Cortinas"]',
+    accion: "categoria",
+    valor: "Cortinas"
+  },
+  {
+    titulo: "Comparte momentos especiales",
+    texto: "Encuentra opciones para el comedor y para recibir a quienes más quieres.",
+    demostracion: "Mostrando ideas para tu comedor…",
+    destino: '[data-categoria="Comedor"]',
+    accion: "categoria",
+    valor: "Comedor"
+  },
+  {
+    titulo: "Sigue descubriendo",
+    texto: "Hay muchas más categorías. Puedes volver al buscador o recorrer el catálogo a tu ritmo.",
+    demostracion: "Explora cuando quieras, sin prisa.",
+    destino: '[data-categoria="Alfombras"]',
+    accion: "categoria",
+    valor: "Alfombras"
+  }
+];
+
+let welcomeTimer = null;
+let welcomeStage = "";
+let welcomeDemoTimers = [];
+let welcomeHighlight = null;
+let welcomeDemoState = null;
+let welcomeOpenedProductModal = false;
+
+function inicializarBienvenida() {
+  const overlay = document.getElementById("catalogWelcome");
+  if (!overlay) return;
+
+  document.getElementById("welcomeSkip")?.addEventListener("click", omitirBienvenida);
+  document.getElementById("welcomeSecondYes")?.addEventListener("click", () => iniciarPresentacion(PRESENTACION_CATEGORIAS, "segunda"));
+  document.getElementById("welcomeSecondNo")?.addEventListener("click", cerrarBienvenida);
+  document.getElementById("welcomeFinish")?.addEventListener("click", cerrarBienvenida);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !overlay.classList.contains("activo")) return;
+    if (!document.getElementById("welcomeChoice").hidden) cerrarBienvenida();
+    else omitirBienvenida();
+  });
+
+  if (localStorage.getItem(STORAGE_WELCOME_KEY) !== "true") {
+    window.setTimeout(() => iniciarPresentacion(PRESENTACION_PRINCIPAL, "primera"), 900);
+  }
+}
+
+function iniciarPresentacion(slides, stage) {
+  const overlay = document.getElementById("catalogWelcome");
+  const choice = document.getElementById("welcomeChoice");
+  const finish = document.getElementById("welcomeFinish");
+  const skip = document.getElementById("welcomeSkip");
+  const eyebrow = document.getElementById("welcomeEyebrow");
+  if (!overlay || !choice || !finish || !skip || !eyebrow) return;
+
+  clearTimeout(welcomeTimer);
+  limpiarDemostracionBienvenida();
+  welcomeStage = stage;
+  overlay.classList.add("activo");
+  overlay.setAttribute("aria-hidden", "false");
+  choice.hidden = true;
+  finish.hidden = true;
+  skip.hidden = false;
+  skip.textContent = "Omitir presentación · Skip";
+  eyebrow.textContent = stage === "segunda" ? "Un poco más de Home Style 507" : "Bienvenida a Home Style 507";
+  document.body.classList.add("welcome-active");
+  skip.focus();
+
+  let slideIndex = 0;
+  const mostrarDiapositiva = () => {
+    limpiarDemostracionBienvenida();
+    const slide = slides[slideIndex];
+    document.getElementById("welcomeTitle").textContent = slide.titulo;
+    document.getElementById("welcomeDescription").textContent = slide.texto;
+    document.getElementById("welcomeDemoCaption").textContent = slide.demostracion || "";
+    document.getElementById("welcomeStep").textContent = `${stage === "segunda" ? "Segunda" : "Primera"} presentación · ${slideIndex + 1} de ${slides.length}`;
+    document.getElementById("welcomeProgress").style.width = `${((slideIndex + 1) / slides.length) * 100}%`;
+    const destination = document.querySelector(slide.destino);
+    if (destination) {
+      destination.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: slide.accion === "producto" ? "center" : "start"
+      });
+      if (destination instanceof HTMLElement) {
+        destination.classList.add("welcome-highlight");
+        welcomeHighlight = destination;
+      }
+    }
+    ejecutarDemostracionBienvenida(slide);
+
+    welcomeTimer = window.setTimeout(() => {
+      slideIndex += 1;
+      if (slideIndex < slides.length) {
+        mostrarDiapositiva();
+      } else {
+        terminarPresentacion();
+      }
+    }, 5000);
+  };
+  mostrarDiapositiva();
+}
+
+function programarDemostracion(callback, delay) {
+  const timer = window.setTimeout(callback, delay);
+  welcomeDemoTimers.push(timer);
+}
+
+function limpiarDemostracionBienvenida() {
+  welcomeDemoTimers.forEach(window.clearTimeout);
+  welcomeDemoTimers = [];
+  if (welcomeHighlight) {
+    welcomeHighlight.classList.remove("welcome-highlight");
+    welcomeHighlight = null;
+  }
+  const cursor = document.getElementById("welcomeDemoCursor");
+  if (cursor) cursor.remove();
+  if (welcomeOpenedProductModal) {
+    cerrarModal();
+    welcomeOpenedProductModal = false;
+  }
+
+  if (welcomeDemoState) {
+    const search = document.getElementById("search");
+    if (search) search.value = welcomeDemoState.search;
+    const categoryButton = [...document.querySelectorAll("#catNav button[data-category]:not([data-circular-clone])")]
+      .find((button) => button.dataset.category === welcomeDemoState.category);
+    filtrarCategoria(welcomeDemoState.category, categoryButton || null);
+    if (search && search.value) filtrar();
+    actualizarBotonUrlEspecial();
+    welcomeDemoState = null;
+  }
+}
+
+function mostrarCursorDemostracion(target) {
+  if (!target) return;
+  let cursor = document.getElementById("welcomeDemoCursor");
+  if (!cursor) {
+    cursor = document.createElement("span");
+    cursor.id = "welcomeDemoCursor";
+    cursor.className = "welcome-demo-cursor";
+    cursor.setAttribute("aria-hidden", "true");
+    cursor.textContent = "👆";
+    document.getElementById("catalogWelcome").appendChild(cursor);
+  }
+  const rect = target.getBoundingClientRect();
+  cursor.style.left = `${Math.max(12, Math.min(rect.left + rect.width * 0.62, window.innerWidth - 36))}px`;
+  cursor.style.top = `${Math.max(12, Math.min(rect.top + rect.height * 0.58, window.innerHeight - 48))}px`;
+  cursor.classList.add("activo");
+  programarDemostracion(() => cursor.classList.remove("activo"), 1200);
+}
+
+function ejecutarDemostracionBienvenida(slide) {
+  if (slide.accion === "buscar") {
+    const input = document.getElementById("search");
+    if (!input) return;
+    welcomeDemoState = { search: input.value, category: categoriaBaseActual };
+    const allButton = document.querySelector('#catNav button[data-category="Todos"]:not([data-circular-clone])');
+    filtrarCategoria("Todos", allButton || null);
+    input.value = "";
+    input.focus({ preventScroll: true });
+    mostrarCursorDemostracion(input);
+    [...slide.valor].forEach((character, index) => {
+      programarDemostracion(() => {
+        input.value += character;
+        filtrar();
+        actualizarBotonUrlEspecial();
+      }, 220 + index * 190);
+    });
+    return;
+  }
+
+  if (slide.accion === "categoria") {
+    welcomeDemoState = { search: document.getElementById("search")?.value || "", category: categoriaBaseActual };
+    const button = [...document.querySelectorAll('#catNav button[data-category]:not([data-circular-clone])')]
+      .find((item) => item.dataset.category === slide.valor);
+    if (button) {
+      mostrarCursorDemostracion(button);
+      programarDemostracion(() => button.click(), 450);
+    }
+    return;
+  }
+
+  if (slide.accion === "producto") {
+    const image = document.querySelector(slide.destino);
+    if (image instanceof HTMLImageElement) {
+      mostrarCursorDemostracion(image);
+      programarDemostracion(() => {
+        abrirModal(image);
+        welcomeOpenedProductModal = document.getElementById("modalImagen")?.classList.contains("activo") || false;
+      }, 500);
+      programarDemostracion(cerrarModal, 3600);
+    }
+    return;
+  }
+
+  const target = document.querySelector(slide.destino);
+  if (target) mostrarCursorDemostracion(target);
+}
+
+function terminarPresentacion() {
+  clearTimeout(welcomeTimer);
+  welcomeTimer = null;
+  limpiarDemostracionBienvenida();
+  localStorage.setItem(STORAGE_WELCOME_KEY, "true");
+  if (welcomeStage === "primera") {
+    document.getElementById("welcomeTitle").textContent = "¿Te gustaría conocer más?";
+    document.getElementById("welcomeDescription").textContent = "Puedes ver una segunda presentación sobre las categorías y otras formas de explorar.";
+    document.getElementById("welcomeDemoCaption").textContent = "Tú eliges: continuar descubriendo o empezar a explorar.";
+    document.getElementById("welcomeStep").textContent = "Primera presentación completada · First presentation complete";
+    document.getElementById("welcomeProgress").style.width = "100%";
+    document.getElementById("welcomeChoice").hidden = false;
+    document.getElementById("welcomeSkip").hidden = true;
+    document.getElementById("welcomeSecondYes").focus();
+    return;
+  }
+
+  document.getElementById("welcomeTitle").textContent = "¡Lista para explorar!";
+  document.getElementById("welcomeDescription").textContent = "Esperamos que disfrutes tu visita. ¡Feliz Navidad y felices compras! · Merry Christmas and happy browsing!";
+  document.getElementById("welcomeDemoCaption").textContent = "¡Que disfrutes tu visita!";
+  document.getElementById("welcomeStep").textContent = "Presentación completa · Tour complete";
+  document.getElementById("welcomeSkip").hidden = true;
+  document.getElementById("welcomeFinish").hidden = false;
+  document.getElementById("welcomeFinish").focus();
+}
+
+function omitirBienvenida() {
+  clearTimeout(welcomeTimer);
+  welcomeTimer = null;
+  if (welcomeStage === "primera") {
+    terminarPresentacion();
+    return;
+  }
+  cerrarBienvenida();
+}
+
+function cerrarBienvenida() {
+  clearTimeout(welcomeTimer);
+  welcomeTimer = null;
+  limpiarDemostracionBienvenida();
+  localStorage.setItem(STORAGE_WELCOME_KEY, "true");
+  const overlay = document.getElementById("catalogWelcome");
+  if (!overlay) return;
+  overlay.classList.remove("activo");
+  overlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("welcome-active");
+}
+
+function iniciarMensajeNavideno() {
+  const message = document.getElementById("holidayMessage");
+  if (!message) return;
+  const mostrarMensaje = () => {
+    message.classList.add("activo");
+    message.setAttribute("aria-hidden", "false");
+    window.setTimeout(() => {
+      message.classList.remove("activo");
+      message.setAttribute("aria-hidden", "true");
+    }, 6500);
+  };
+  window.setTimeout(mostrarMensaje, 4500);
+  window.setInterval(mostrarMensaje, 30000);
 }
 
 function formatearPrecio(valor) {
@@ -652,7 +1060,8 @@ function configurarEventListeners() {
   if (toggleGridBtn) {
     toggleGridBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      const siguiente = avanzarCicloColumnas();
+      avanzarCicloColumnas();
+      registrarToqueSelectorColumnas();
       aplicarPreferenciaColumnasGrid();
     });
   }
